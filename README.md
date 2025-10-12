@@ -41,7 +41,7 @@ This dashboard displays:
 
 #### 1. Clone the repository
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/nkrishna14/emissions-dashboard
 cd emissions-dashboard
 ```
 
@@ -54,7 +54,7 @@ npm start
 
 The backend will start on `http://localhost:5000`
 
-Test it: Open `http://localhost:5000/api/emissions/australia` in your browser
+To test it, open `http://localhost:5000/api/emissions/australia` in your browser
 
 #### 3. Start the Frontend (in a new terminal)
 ```bash
@@ -69,15 +69,15 @@ The frontend will start on `http://localhost:3000` and open automatically in you
 
 ### Core Requirements ✅
 - ✅ Display current carbon intensity for NZ and AU
-- ✅ Show generation mix with interactive charts
-- ✅ Enable side-by-side country comparison
-- ✅ Include manual refresh button
+- ✅ Generation mix visualised through pie charts
+- ✅ Side-by-side country comparison
+- ✅ Includes manual refresh button
+- ✅ Color-coded carbon intensity levels
 
 ### Optional Enhancements ✅
 - ✅ Auto-refresh every 5 minutes
 - ✅ Smooth animations and transitions
 - ✅ Fully responsive design
-- ✅ Color-coded carbon intensity levels
 - ✅ Renewable percentage calculation
 - ✅ Total demand display
 
@@ -138,17 +138,6 @@ The frontend will start on `http://localhost:3000` and open automatically in you
 - **Carbon Intensity**: Returns real-time carbon emissions (gCO₂/kWh) and renewable percentage
 - **Generation Mix**: Returns daily generation by fuel type (MWh)
 
-## 🧪 Testing
-
-### Manual Testing Checklist
-- [ ] Backend responds at `http://localhost:5000/api/emissions/australia`
-- [ ] Frontend loads without errors
-- [ ] Both countries display data
-- [ ] Charts render correctly
-- [ ] Manual refresh button works
-- [ ] Auto-refresh triggers after 5 minutes
-- [ ] Responsive on mobile devices
-- [ ] Error handling displays when backend is down
 
 ## 📝 Implementation Notes
 
@@ -162,14 +151,18 @@ As specified in the requirements, Australian data is served through a backend AP
 - **No state management library**: App state is simple enough for React hooks
 - **CSS over styled-components**: Faster development, no additional dependencies
 
-## 🚨 Known Limitations
+## 🤖 AI Assistance Disclosure
 
-1. **Australia data is mocked**: Not real-time data from Australian grid
-2. **NZ generation data**: Uses daily totals, not real-time generation
-3. **No historical trends**: Current implementation shows only live data
-4. **CORS**: Development uses permissive CORS; production would need proper configuration
+This project was developed with the assistance of **Claude (Anthropic)**. AI assistance was primarily used for:
+
+- **Styling and CSS**: Component styling, responsive design, and visual polish
+- **API Integration**: Parsing EM6 API responses and data transformation logic in `api.ts`
+- **Documentation**: README structure, code comments, and inline documentation
+- **TypeScript Types**: Interface definitions and type safety improvements
+- **Boilerplate Code**: Initial project structure and configuration files
+
+**Core logic, architecture decisions, and React component structure were designed and implemented by me.** AI was used as a development tool to accelerate implementation and ensure code quality, similar to how Stack Overflow or documentation would be referenced during development.
 
 ## 👤 Author
 
-**Krishna**  
-Technical Assessment for Evnex
+**Krishna**

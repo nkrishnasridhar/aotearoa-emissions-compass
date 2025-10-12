@@ -6,7 +6,12 @@ const PORT = 5000;
 
 app.use(cors());
 
-// Function to generate random emissions data for each state
+/**
+ * Generates mock emissions data for a given Australian state.
+ *
+ * @param {string} stateName - Name of the state (e.g. 'NSW', 'VIC')
+ * @returns {Object} Emissions and generation mix data for the state
+ */
 function generateStateData(stateName) {
     const dateLocaleOptions = {
         day: "2-digit",
@@ -20,10 +25,10 @@ function generateStateData(stateName) {
     
     return {
         state: stateName,
-        timestamp: new Date().toLocaleString("en-NZ", dateLocaleOptions),
-        totalDemandMW: Math.round(5000 + Math.random() * 3000),
-        carbonIntensity_gCO2kWh: Math.round(200 + Math.random() * 600),
-        generationMix: {
+        timestamp: new Date().toLocaleString("en-NZ", dateLocaleOptions), // Timestamp formatted for New Zealand-style date/time
+        totalDemandMW: Math.round(5000 + Math.random() * 3000),           // Total energy demand in megawatts (MW)
+        carbonIntensity_gCO2kWh: Math.round(200 + Math.random() * 600),   // Carbon intensity in grams of CO2 per kWh
+        generationMix: {                                                  // Power generation mix by fuel type (as percentages)
             coal: Math.round(Math.random() * 40 * 10) / 10,
             gas: Math.round(Math.random() * 30 * 10) / 10,
             hydro: Math.round(Math.random() * 20 * 10) / 10,
@@ -33,20 +38,26 @@ function generateStateData(stateName) {
     };
 }
 
-// Create an endpoint that returns emissions data for Australian states
+/**
+ * GET /api/emissions/australia
+ * Returns mocked emissions data for Australian states.
+ */
 app.get('/api/emissions/australia', (req, res) => {
-  const states = ['QLD', 'NSW', 'VIC', 'SA', 'TAS'];
-  const data = states.map((state) => generateStateData(state));
-  res.json(data);
+    const states = ['QLD', 'NSW', 'VIC', 'SA', 'TAS'];
+    const data = states.map((state) => generateStateData(state));
+    res.json(data);
 });
 
-// Health check endpoint
+/**
+ * GET /health
+ * Simple health check endpoint to verify the server is running.
+ */
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Start the server
+// Start the express server
 app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-  console.log(`Test API: http://localhost:${PORT}/api/emissions/australia`);
+    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`Test API: http://localhost:${PORT}/api/emissions/australia`);
 });

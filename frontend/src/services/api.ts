@@ -59,8 +59,6 @@ export async function fetchAustraliaData(): Promise<EmissionsData[]> {
 /**
  * Fetches live emissions and generation mix data for New Zealand using the EM6 API.
  * 
- * Falls back to hardcoded defaults if the API request fails.
- *
  * @returns {Promise<EmissionsData>} Current emissions data for New Zealand.
  */
 export async function fetchNewZealandData(): Promise<EmissionsData> {
@@ -89,45 +87,55 @@ export async function fetchNewZealandData(): Promise<EmissionsData> {
         }
 
         // Build generation mix from available fields
+        // API returns daily totals in MWh, so divide by 48 (half-hour periods) to get average MW
         const generationMix: GenerationMix = {};
         let totalGeneration = 0;
 
         latestGeneration.generation_type.forEach((gen: any) => {
             if (gen.hyd_mwh !== undefined) {
-                generationMix.hydro = gen.hyd_mwh;
-                totalGeneration += gen.hyd_mwh;
+                const hyd_mw = (gen.hyd_mwh || 0) / 48;
+                generationMix.hydro = hyd_mw;
+                totalGeneration += hyd_mw;
             }
             if (gen.win_mwh !== undefined) {
-                generationMix.wind = gen.win_mwh;
-                totalGeneration += gen.win_mwh;
+                const win_mw = (gen.win_mwh || 0) / 48;
+                generationMix.wind = win_mw;
+                totalGeneration += win_mw;
             }
             if (gen.sol_mwh !== undefined) {
-                generationMix.solar = gen.sol_mwh;
-                totalGeneration += gen.sol_mwh;
+                const sol_mw = (gen.sol_mwh || 0) / 48;
+                generationMix.solar = sol_mw;
+                totalGeneration += sol_mw;
             }
             if (gen.gas_mwh !== undefined) {
-                generationMix.gas = gen.gas_mwh;
-                totalGeneration += gen.gas_mwh;
+                const gas_mw = (gen.gas_mwh || 0) / 48;
+                generationMix.gas = gas_mw;
+                totalGeneration += gas_mw;
             }
             if (gen.cg_mwh !== undefined) {
-                generationMix.gas = (generationMix.gas || 0) + gen.cg_mwh;
-                totalGeneration += gen.cg_mwh;
+                const cg_mw = (gen.cg_mwh || 0) / 48;
+                generationMix.gas = (generationMix.gas || 0) + cg_mw;
+                totalGeneration += cg_mw;
             }
             if (gen.cog_mwh !== undefined) {
-                generationMix.gas = (generationMix.gas || 0) + gen.cog_mwh;
-                totalGeneration += gen.cog_mwh;
+                const cog_mw = (gen.cog_mwh || 0) / 48;
+                generationMix.gas = (generationMix.gas || 0) + cog_mw;
+                totalGeneration += cog_mw;
             }
             if (gen.geo_mwh !== undefined) {
-                generationMix.geothermal = gen.geo_mwh;
-                totalGeneration += gen.geo_mwh;
+                const geo_mw = (gen.geo_mwh || 0) / 48;
+                generationMix.geothermal = geo_mw;
+                totalGeneration += geo_mw;
             }
             if (gen.bat_mwh !== undefined) {
-                generationMix.other = (generationMix.other || 0) + gen.bat_mwh;
-                totalGeneration += gen.bat_mwh;
+                const bat_mw = (gen.bat_mwh || 0) / 48;
+                generationMix.other = (generationMix.other || 0) + bat_mw;
+                totalGeneration += bat_mw;
             }
             if (gen.liq_mwh !== undefined && gen.liq_mwh > 0) {
-                generationMix.other = (generationMix.other || 0) + gen.liq_mwh;
-                totalGeneration += gen.liq_mwh;
+                const liq_mw = (gen.liq_mwh || 0) / 48;
+                generationMix.other = (generationMix.other || 0) + liq_mw;
+                totalGeneration += liq_mw;
             }
         });
 

@@ -13,28 +13,18 @@ app.use(cors());
  * @returns {Object} Emissions and generation mix data for the state
  */
 function generateStateData(stateName) {
-    const dateLocaleOptions = {
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-        hour12: true
-    };
-    
     return {
         state: stateName,
-        timestamp: new Date().toLocaleString("en-NZ", dateLocaleOptions), // Timestamp formatted for New Zealand-style date/time
-        totalDemandMW: Math.round(5000 + Math.random() * 3000),           // Total energy demand in megawatts (MW)
+        timestamp: new Date().toISOString(),                              // Timestamp in default ISO format
+        totalDemandMW: Math.round(5000 + Math.random() * 5000),           // Total energy demand in megawatts (MW)
         carbonIntensity_gCO2kWh: Math.round(200 + Math.random() * 600),   // Carbon intensity in grams of CO2 per kWh
         generationMix: {                                                  // Power generation mix by fuel type (as percentages)
-            coal: Math.round(Math.random() * 40 * 10) / 10,
-            gas: Math.round(Math.random() * 30 * 10) / 10,
-            hydro: Math.round(Math.random() * 20 * 10) / 10,
-            wind: Math.round(Math.random() * 25 * 10) / 10,
-            solar: Math.round(Math.random() * 15 * 10) / 10,
-        },
+            coal: Math.random() * 3000 + 1000,    // 1000-4000 MW
+            gas: Math.random() * 2000 + 500,      // 500-2500 MW
+            hydro: Math.random() * 1500 + 200,    // 200-1700 MW
+            wind: Math.random() * 1200 + 300,     // 300-1500 MW
+            solar: Math.random() * 800 + 100,     // 100-900 MW
+        }
     };
 }
 

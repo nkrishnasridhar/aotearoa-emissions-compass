@@ -42,7 +42,7 @@ New Zealand data comes from EM6. Australian data comes from OpenElectricity for 
 
 ### 1. Clone the repository
 ```bash
-git clone https://github.com/nkrishna14/emissions-dashboard
+git clone https://github.com/nkrishnasridhar/emissions-dashboard
 cd emissions-dashboard
 ```
 

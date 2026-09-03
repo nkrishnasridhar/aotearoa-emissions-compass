@@ -1,76 +1,69 @@
-# 🌏 Live Emissions & Generation Mix Dashboard
+# Live Emissions & Generation Mix Dashboard
 
-A real-time dashboard comparing carbon emissions and electricity generation mix between New Zealand and Australia.
+A deployed real-time dashboard for comparing electricity carbon intensity and generation mix between New Zealand and Australia.
 
-## 🎯 Overview
+## Overview
 
-This dashboard displays:
-- **Current carbon intensity** (gCO₂/kWh) for both countries
-- **Live generation mix** by fuel type (hydro, wind, solar, gas, coal, geothermal)
-- **Side-by-side comparison** of NZ and AU
-- **Auto-refresh** every 5 minutes
-- **Manual refresh** button
+The dashboard gives a quick side-by-side view of how clean each electricity grid is at the latest available interval. It shows:
 
-## 🏗️ Architecture
+- Current carbon intensity in `gCO2/kWh`
+- Generation mix by fuel type
+- Total demand in MW
+- Renewable generation percentage
+- Automatic refresh every 5 minutes
+- Manual refresh for on-demand updates
+
+New Zealand data comes from EM6. Australian data comes from OpenElectricity for the National Electricity Market regions `QLD1`, `NSW1`, `VIC1`, `SA1`, and `TAS1`, then the frontend aggregates those regions into a country-level Australia card.
+
+## Architecture
 
 ### Frontend
 - **Framework**: React 19 with TypeScript
 - **Charts**: Recharts for data visualization
 - **Styling**: Custom CSS with responsive design
-- **Data Sources**:
-  - **New Zealand**: EM6 APIs via backend proxy
-    - Carbon intensity: `https://api.em6.co.nz/ords/em6/data_api/current_carbon_intensity`
-    - Generation mix: `https://api.em6.co.nz/ords/em6/data_api/free/price`
-  - **Australia**: OpenElectricity API via backend proxy
+- **Data access**: Calls the backend API for both countries
 
 ### Backend
 - **Framework**: Node.js with Express
-- **Port**: 5000
-- **Endpoints**:
+- **Local port**: 5000
+- **API endpoints**:
   - `GET /api/emissions/australia` - Returns OpenElectricity NEM data for 5 Australian regions
   - `GET /api/emissions/new-zealand` - Returns EM6 data for New Zealand
   - `GET /health` - Health check endpoint
-- **Data**: Live OpenElectricity NEM generation, demand, and emissions data
+- **External sources**:
+  - EM6 current carbon intensity and generation data for New Zealand
+  - OpenElectricity generation, demand, energy, and emissions data for Australia
 
-## 🚀 Quick Start
+## Running Locally
 
 ### Prerequisites
 - Node.js (v14 or higher)
 - npm or yarn
 
-### Installation & Running
-
-#### 1. Clone the repository
+### 1. Clone the repository
 ```bash
 git clone https://github.com/nkrishna14/emissions-dashboard
 cd emissions-dashboard
 ```
 
-#### 2. Start the Backend
+### 2. Start the backend
 ```bash
 cd backend
 npm install
-copy .env.example .env
 npm start
 ```
 
-The backend will start on `http://localhost:5000`
-
-Set your OpenElectricity API key in `backend/.env` before calling the Australian endpoint:
+Create `backend/.env` from `backend/.env.example` and set your OpenElectricity API key:
 
 ```bash
 OPENELECTRICITY_API_KEY=your-api-key
 ```
 
-For a deployed frontend, set `REACT_APP_BACKEND_URL` to the deployed backend origin, for example:
+The backend will start on `http://localhost:5000`.
 
-```bash
-REACT_APP_BACKEND_URL=https://emissions-dashboard-phi.vercel.app
-```
+To test it locally, open `http://localhost:5000/health` or `http://localhost:5000/api/emissions/australia`.
 
-To test it, open `http://localhost:5000/api/emissions/australia` in your browser
-
-#### 3. Start the Frontend (in a new terminal)
+### 3. Start the frontend
 ```bash
 cd frontend
 npm install
@@ -79,39 +72,33 @@ npm start
 
 The frontend will start on `http://localhost:3000` and open automatically in your browser.
 
-## ✨ Features Implemented
+## Features
 
-### Core Requirements ✅
-- ✅ Display current carbon intensity for NZ and AU
-- ✅ Generation mix visualised through pie charts
-- ✅ Side-by-side country comparison
-- ✅ Includes manual refresh button
-- ✅ Color-coded carbon intensity levels
+- Display current carbon intensity for New Zealand and Australia
+- Visualize generation mix through pie charts
+- Compare both countries side by side
+- Refresh data manually
+- Refresh data automatically every 5 minutes
+- Color-code carbon intensity levels
+- Show renewable percentage and total demand
 
-### Optional Enhancements ✅
-- ✅ Auto-refresh every 5 minutes
-- ✅ Smooth animations and transitions
-- ✅ Fully responsive design
-- ✅ Renewable percentage calculation
-- ✅ Total demand display
-
-## 🎨 Design Features
+## Design Details
 
 ### Carbon Intensity Color Coding
-- 🟢 **Green** (Very Low / Low): < 100 gCO₂/kWh
-- 🟡 **Yellow** (Moderate): 100-500 gCO₂/kWh
-- 🔴 **Red** (High / Very High): > 500 gCO₂/kWh
+- **Green**: Very Low / Low, below `100 gCO2/kWh`
+- **Yellow**: Moderate, `100-500 gCO2/kWh`
+- **Red**: High / Very High, above `500 gCO2/kWh`
 
 ### Generation Mix Colors
-- 🔵 **Hydro**: Blue
-- 🟢 **Wind**: Green
-- 🟠 **Solar**: Orange
-- 🟣 **Geothermal**: Purple
-- 🟤 **Gas**: Dark orange
-- ⚫ **Coal**: Gray
-- ⚪ **Other**: Light gray
+- Hydro: blue
+- Wind: green
+- Solar: orange
+- Geothermal: purple
+- Gas: dark orange
+- Coal: gray
+- Other: light gray
 
-## 📊 Data Flow
+## Data Flow
 
 ### New Zealand
 1. Backend fetches from two EM6 APIs simultaneously:
@@ -128,7 +115,7 @@ The frontend will start on `http://localhost:3000` and open automatically in you
 4. State data is aggregated into country-level totals
 5. Displayed alongside NZ data
 
-## 🔧 API Details
+## API Details
 
 ### Backend API Response Format
 ```json
@@ -151,14 +138,19 @@ The frontend will start on `http://localhost:3000` and open automatically in you
 ```
 
 ### EM6 APIs Used
-- **Carbon Intensity**: Returns real-time carbon emissions (gCO₂/kWh) and renewable percentage
+- **Carbon Intensity**: Returns real-time carbon emissions (`gCO2/kWh`) and renewable percentage
 - **Generation Mix**: Returns daily generation by fuel type (MWh)
 
+### OpenElectricity APIs Used
+- **Generation**: NEM power data grouped by region and fuel technology group
+- **Demand**: NEM market demand grouped by region
+- **Emissions and energy**: Used to calculate carbon intensity for each Australian region
 
-## 📝 Implementation Notes
+## Implementation Notes
 
-### Australia Data
-Australian data is served through the backend so the OpenElectricity API key stays out of the browser. The backend queries OpenElectricity's NEM endpoints, maps fuel technology groups into the dashboard categories, and caches results briefly to reduce API usage during refreshes.
+Australian and New Zealand data are both served through the backend. This keeps the OpenElectricity API key out of the browser and avoids browser-side connectivity or CORS issues with external data sources.
+
+The backend caches country data briefly to reduce repeated upstream API usage during dashboard refreshes.
 
 ### Tech Decisions
 - **React + TypeScript**: Type safety and component reusability
@@ -167,7 +159,7 @@ Australian data is served through the backend so the OpenElectricity API key sta
 - **No state management library**: App state is simple enough for React hooks
 - **CSS over styled-components**: Faster development, no additional dependencies
 
-## 🤖 AI Assistance Disclosure
+## AI Assistance Disclosure
 
 This project was developed with the assistance of **Claude (Anthropic)**. AI assistance was primarily used for:
 
@@ -179,6 +171,6 @@ This project was developed with the assistance of **Claude (Anthropic)**. AI ass
 
 **Core logic, architecture decisions, and React component structure were designed and implemented by me.** AI was used as a development tool to accelerate implementation and ensure code quality, similar to how Stack Overflow or documentation would be referenced during development.
 
-## 👤 Author
+## Author
 
 **Krishna**

@@ -1,8 +1,18 @@
 // API Service for fetching emissions data
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:5000';
-const NZ_CARBON_API_URL = 'https://api.em6.co.nz/ords/em6/data_api/current_carbon_intensity';
-const NZ_GENERATION_API_URL = 'https://api.em6.co.nz/ords/em6/data_api/free/price';
+const DEFAULT_PRODUCTION_BACKEND_URL = 'https://emissions-dashboard-phi.vercel.app';
+const LOCAL_BACKEND_URL = 'http://localhost:5000';
+const BACKEND_URL = getBackendUrl();
+
+function getBackendUrl(): string {
+    const configuredUrl = process.env.REACT_APP_BACKEND_URL?.trim();
+    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    const fallbackUrl = isLocalhost ? LOCAL_BACKEND_URL : DEFAULT_PRODUCTION_BACKEND_URL;
+    const rawUrl = configuredUrl || fallbackUrl;
+    const withProtocol = /^https?:\/\//i.test(rawUrl) ? rawUrl : `https://${rawUrl}`;
+
+    return withProtocol.replace(/\/+$/, '');
+}
 
 /**
  * Represents a mapping of generation types to their MWh values.
@@ -31,7 +41,7 @@ export interface EmissionsData {
 }
 
 /**
- * Fetches mock emissions data for Australian states from the backend server.
+ * Fetches emissions data for Australian states from the backend server.
  * 
  * @returns {Promise<EmissionsData[]>} A list of emissions data for each state.
  */
@@ -57,95 +67,18 @@ export async function fetchAustraliaData(): Promise<EmissionsData[]> {
 }
 
 /**
- * Fetches live emissions and generation mix data for New Zealand using the EM6 API.
+ * Fetches live emissions and generation mix data for New Zealand through the backend server.
  * 
  * @returns {Promise<EmissionsData>} Current emissions data for New Zealand.
  */
 export async function fetchNewZealandData(): Promise<EmissionsData> {
     try {
-        // Fetch both carbon intensity and generation data in parallel
-        const [carbonResponse, generationResponse] = await Promise.all([
-            fetch(NZ_CARBON_API_URL),
-            fetch(NZ_GENERATION_API_URL),
-        ]);
-
-        if (!carbonResponse.ok || !generationResponse.ok) {
-            throw new Error('Failed to fetch NZ data');
+        const response = await fetch(`${BACKEND_URL}/api/emissions/new-zealand`);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
         }
 
-        const carbonData = await carbonResponse.json();
-        const generationData = await generationResponse.json();
-
-        const latestCarbon = carbonData.items?.[0];
-        if (!latestCarbon) {
-            throw new Error('No carbon intensity data available');
-        }
-
-        const latestGeneration = generationData.items?.[0];
-        if (!latestGeneration || !latestGeneration.generation_type) {
-            throw new Error('No generation data available');
-        }
-
-        // Build generation mix from available fields
-        // API returns daily totals in MWh, so divide by 48 (half-hour periods) to get average MW
-        const generationMix: GenerationMix = {};
-        let totalGeneration = 0;
-
-        latestGeneration.generation_type.forEach((gen: any) => {
-            if (gen.hyd_mwh !== undefined) {
-                const hyd_mw = (gen.hyd_mwh || 0) / 48;
-                generationMix.hydro = hyd_mw;
-                totalGeneration += hyd_mw;
-            }
-            if (gen.win_mwh !== undefined) {
-                const win_mw = (gen.win_mwh || 0) / 48;
-                generationMix.wind = win_mw;
-                totalGeneration += win_mw;
-            }
-            if (gen.sol_mwh !== undefined) {
-                const sol_mw = (gen.sol_mwh || 0) / 48;
-                generationMix.solar = sol_mw;
-                totalGeneration += sol_mw;
-            }
-            if (gen.gas_mwh !== undefined) {
-                const gas_mw = (gen.gas_mwh || 0) / 48;
-                generationMix.gas = gas_mw;
-                totalGeneration += gas_mw;
-            }
-            if (gen.cg_mwh !== undefined) {
-                const cg_mw = (gen.cg_mwh || 0) / 48;
-                generationMix.gas = (generationMix.gas || 0) + cg_mw;
-                totalGeneration += cg_mw;
-            }
-            if (gen.cog_mwh !== undefined) {
-                const cog_mw = (gen.cog_mwh || 0) / 48;
-                generationMix.gas = (generationMix.gas || 0) + cog_mw;
-                totalGeneration += cog_mw;
-            }
-            if (gen.geo_mwh !== undefined) {
-                const geo_mw = (gen.geo_mwh || 0) / 48;
-                generationMix.geothermal = geo_mw;
-                totalGeneration += geo_mw;
-            }
-            if (gen.bat_mwh !== undefined) {
-                const bat_mw = (gen.bat_mwh || 0) / 48;
-                generationMix.other = (generationMix.other || 0) + bat_mw;
-                totalGeneration += bat_mw;
-            }
-            if (gen.liq_mwh !== undefined && gen.liq_mwh > 0) {
-                const liq_mw = (gen.liq_mwh || 0) / 48;
-                generationMix.other = (generationMix.other || 0) + liq_mw;
-                totalGeneration += liq_mw;
-            }
-        });
-
-        return {
-            country: 'New Zealand',
-            timestamp: latestCarbon.timestamp || new Date().toISOString(),
-            totalDemandMW: totalGeneration,
-            carbonIntensity_gCO2kWh: parseFloat(latestCarbon.nz_carbon_gkwh) || 0,
-            generationMix,
-        };
+        return response.json();
     } catch (error) {
         console.error('Error fetching New Zealand data:', error);
         throw error;
@@ -161,9 +94,9 @@ export async function fetchNewZealandData(): Promise<EmissionsData> {
 export function aggregateAustraliaData(states: EmissionsData[]): EmissionsData {
     const totalDemand = states.reduce((sum, state) => sum + state.totalDemandMW, 0);
     
-    const weightedIntensity = states.reduce((sum, state) => 
+    const weightedIntensity = totalDemand > 0 ? states.reduce((sum, state) => 
         sum + (state.carbonIntensity_gCO2kWh * state.totalDemandMW), 0
-    ) / totalDemand;
+    ) / totalDemand : 0;
 
     const aggregatedMix: GenerationMix = {};
     states.forEach(state => {

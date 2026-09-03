@@ -7,6 +7,8 @@ const axios = require('axios');
 const PORT = process.env.PORT || 5000;
 const OPEN_ELECTRICITY_BASE_URL =
     process.env.OPENELECTRICITY_API_BASE_URL || 'https://api.openelectricity.org.au/v4';
+const NZ_CARBON_API_URL = 'https://api.em6.co.nz/ords/em6/data_api/current_carbon_intensity';
+const NZ_GENERATION_API_URL = 'https://api.em6.co.nz/ords/em6/data_api/free/price';
 const NEM_REGIONS = {
     QLD1: 'QLD',
     NSW1: 'NSW',
@@ -17,6 +19,7 @@ const NEM_REGIONS = {
 const CACHE_TTL_MS = 4 * 60 * 1000;
 
 let australiaCache = null;
+let newZealandCache = null;
 
 function createApp(options = {}) {
     const app = express();
@@ -49,6 +52,28 @@ function createApp(options = {}) {
 
             return res.status(mappedError.status).json({
                 error: mappedError.message,
+            });
+        }
+    });
+
+    app.get('/api/emissions/new-zealand', async (req, res) => {
+        try {
+            if (newZealandCache && Date.now() - newZealandCache.cachedAt < CACHE_TTL_MS) {
+                return res.json(newZealandCache.data);
+            }
+
+            const data = await fetchNewZealandData(httpClient);
+            newZealandCache = {
+                cachedAt: Date.now(),
+                data,
+            };
+
+            return res.json(data);
+        } catch (error) {
+            console.error('Error fetching EM6 New Zealand data:', error.message);
+
+            return res.status(502).json({
+                error: 'New Zealand emissions data is temporarily unavailable.',
             });
         }
     });
@@ -92,6 +117,63 @@ async function fetchAustraliaNEMData(httpClient = axios) {
         demandResponse.data,
         emissionsResponse.data
     );
+}
+
+async function fetchNewZealandData(httpClient = axios) {
+    const [carbonResponse, generationResponse] = await Promise.all([
+        httpClient.get(NZ_CARBON_API_URL, { timeout: 15000 }),
+        httpClient.get(NZ_GENERATION_API_URL, { timeout: 15000 }),
+    ]);
+
+    return transformNewZealandData(carbonResponse.data, generationResponse.data);
+}
+
+function transformNewZealandData(carbonData, generationData) {
+    const latestCarbon = carbonData.items?.[0];
+    if (!latestCarbon) {
+        throw new Error('No carbon intensity data available.');
+    }
+
+    const latestGeneration = generationData.items?.[0];
+    if (!latestGeneration || !latestGeneration.generation_type) {
+        throw new Error('No generation data available.');
+    }
+
+    const generationMix = {};
+    let totalGeneration = 0;
+
+    latestGeneration.generation_type.forEach((gen) => {
+        totalGeneration += addGenerationValue(generationMix, 'hydro', gen.hyd_mwh);
+        totalGeneration += addGenerationValue(generationMix, 'wind', gen.win_mwh);
+        totalGeneration += addGenerationValue(generationMix, 'solar', gen.sol_mwh);
+        totalGeneration += addGenerationValue(generationMix, 'gas', gen.gas_mwh);
+        totalGeneration += addGenerationValue(generationMix, 'gas', gen.cg_mwh);
+        totalGeneration += addGenerationValue(generationMix, 'gas', gen.cog_mwh);
+        totalGeneration += addGenerationValue(generationMix, 'geothermal', gen.geo_mwh);
+        totalGeneration += addGenerationValue(generationMix, 'other', gen.bat_mwh);
+
+        if (gen.liq_mwh !== undefined && gen.liq_mwh > 0) {
+            totalGeneration += addGenerationValue(generationMix, 'other', gen.liq_mwh);
+        }
+    });
+
+    return {
+        country: 'New Zealand',
+        timestamp: latestCarbon.timestamp || new Date().toISOString(),
+        totalDemandMW: totalGeneration,
+        carbonIntensity_gCO2kWh: parseFloat(latestCarbon.nz_carbon_gkwh) || 0,
+        generationMix,
+    };
+}
+
+function addGenerationValue(generationMix, fuel, mwh) {
+    if (mwh === undefined) {
+        return 0;
+    }
+
+    const mw = (mwh || 0) / 48;
+    generationMix[fuel] = (generationMix[fuel] || 0) + mw;
+    return mw;
 }
 
 async function requestOpenElectricity(httpClient, path, params) {
@@ -328,6 +410,7 @@ if (require.main === module) {
 module.exports = app;
 module.exports.createApp = createApp;
 module.exports.transformOpenElectricityData = transformOpenElectricityData;
+module.exports.transformNewZealandData = transformNewZealandData;
 module.exports.mapFuelGroup = mapFuelGroup;
 module.exports.mapOpenElectricityError = mapOpenElectricityError;
 module.exports.buildQueryString = buildQueryString;

@@ -18,7 +18,7 @@ This dashboard displays:
 - **Charts**: Recharts for data visualization
 - **Styling**: Custom CSS with responsive design
 - **Data Sources**:
-  - **New Zealand**: Direct API calls to EM6 APIs
+  - **New Zealand**: EM6 APIs via backend proxy
     - Carbon intensity: `https://api.em6.co.nz/ords/em6/data_api/current_carbon_intensity`
     - Generation mix: `https://api.em6.co.nz/ords/em6/data_api/free/price`
   - **Australia**: OpenElectricity API via backend proxy
@@ -28,6 +28,7 @@ This dashboard displays:
 - **Port**: 5000
 - **Endpoints**:
   - `GET /api/emissions/australia` - Returns OpenElectricity NEM data for 5 Australian regions
+  - `GET /api/emissions/new-zealand` - Returns EM6 data for New Zealand
   - `GET /health` - Health check endpoint
 - **Data**: Live OpenElectricity NEM generation, demand, and emissions data
 
@@ -59,6 +60,12 @@ Set your OpenElectricity API key in `backend/.env` before calling the Australian
 
 ```bash
 OPENELECTRICITY_API_KEY=your-api-key
+```
+
+For a deployed frontend, set `REACT_APP_BACKEND_URL` to the deployed backend origin, for example:
+
+```bash
+REACT_APP_BACKEND_URL=https://emissions-dashboard-phi.vercel.app
 ```
 
 To test it, open `http://localhost:5000/api/emissions/australia` in your browser
@@ -107,11 +114,12 @@ The frontend will start on `http://localhost:3000` and open automatically in you
 ## 📊 Data Flow
 
 ### New Zealand
-1. Frontend fetches from two EM6 APIs simultaneously:
+1. Backend fetches from two EM6 APIs simultaneously:
    - Carbon intensity API for emissions data
    - Generation price API for fuel mix data
-2. Data is parsed and combined in `api.ts`
-3. Displayed in real-time on the dashboard
+2. Data is parsed and combined into the dashboard response format
+3. Frontend fetches from backend API endpoint
+4. Displayed in real-time on the dashboard
 
 ### Australia
 1. Backend fetches NEM data from OpenElectricity for QLD1, NSW1, VIC1, SA1, and TAS1

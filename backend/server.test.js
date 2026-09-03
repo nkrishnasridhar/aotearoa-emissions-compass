@@ -5,6 +5,7 @@ const test = require('node:test');
 const {
     createApp,
     transformOpenElectricityData,
+    transformNewZealandData,
     mapFuelGroup,
     mapOpenElectricityError,
     buildQueryString,
@@ -136,6 +137,51 @@ test('treats zero emissions as a valid carbon intensity value', () => {
     assert.equal(data.find((state) => state.state === 'TAS').carbonIntensity_gCO2kWh, 0);
 });
 
+test('transforms EM6 New Zealand responses into frontend country record', () => {
+    const data = transformNewZealandData(
+        {
+            items: [
+                {
+                    timestamp: '2026-09-03T09:00:00Z',
+                    nz_carbon_gkwh: '95.4',
+                },
+            ],
+        },
+        {
+            items: [
+                {
+                    generation_type: [
+                        {
+                            hyd_mwh: 480,
+                            win_mwh: 96,
+                            sol_mwh: 48,
+                            gas_mwh: 24,
+                            cg_mwh: 24,
+                            cog_mwh: 48,
+                            geo_mwh: 240,
+                            bat_mwh: 12,
+                            liq_mwh: 0,
+                        },
+                    ],
+                },
+            ],
+        }
+    );
+
+    assert.equal(data.country, 'New Zealand');
+    assert.equal(data.timestamp, '2026-09-03T09:00:00Z');
+    assert.equal(data.carbonIntensity_gCO2kWh, 95.4);
+    assert.equal(data.totalDemandMW, 20.25);
+    assert.deepEqual(data.generationMix, {
+        hydro: 10,
+        wind: 2,
+        solar: 1,
+        gas: 2,
+        geothermal: 5,
+        other: 0.25,
+    });
+});
+
 test('maps OpenElectricity auth and rate-limit errors safely', () => {
     assert.equal(mapOpenElectricityError({ response: { status: 401 } }).status, 502);
     assert.equal(mapOpenElectricityError({ response: { status: 403 } }).status, 502);
@@ -193,6 +239,47 @@ test('australia endpoint returns transformed OpenElectricity records', async () 
     assert.equal(nsw.totalDemandMW, 150);
     assert.equal(nsw.carbonIntensity_gCO2kWh, 200);
     assert.deepEqual(nsw.generationMix, { wind: 75 });
+});
+
+test('new zealand endpoint returns transformed EM6 records', async () => {
+    const responses = [
+        {
+            data: {
+                items: [
+                    {
+                        timestamp: '2026-09-03T09:00:00Z',
+                        nz_carbon_gkwh: '80',
+                    },
+                ],
+            },
+        },
+        {
+            data: {
+                items: [
+                    {
+                        generation_type: [
+                            {
+                                hyd_mwh: 480,
+                            },
+                        ],
+                    },
+                ],
+            },
+        },
+    ];
+
+    const app = createApp({
+        httpClient: {
+            get: async () => responses.shift(),
+        },
+    });
+
+    const response = await request(app, '/api/emissions/new-zealand');
+
+    assert.equal(response.status, 200);
+    assert.equal(response.body.country, 'New Zealand');
+    assert.equal(response.body.carbonIntensity_gCO2kWh, 80);
+    assert.deepEqual(response.body.generationMix, { hydro: 10 });
 });
 
 function request(app, path) {

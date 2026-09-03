@@ -313,9 +313,9 @@ function mapOpenElectricityError(error) {
     };
 }
 
-if (require.main === module) {
-    const app = createApp();
+const app = createApp();
 
+if (require.main === module) {
     app.listen(PORT, () => {
         console.log(`Server running on http://localhost:${PORT}`);
         console.log(`Test API: http://localhost:${PORT}/api/emissions/australia`);
@@ -325,11 +325,10 @@ if (require.main === module) {
     });
 }
 
-module.exports = {
-    createApp,
-    transformOpenElectricityData,
-    mapFuelGroup,
-    mapOpenElectricityError,
-    buildQueryString,
-    getNemDateStart,
-};
+module.exports = app;
+module.exports.createApp = createApp;
+module.exports.transformOpenElectricityData = transformOpenElectricityData;
+module.exports.mapFuelGroup = mapFuelGroup;
+module.exports.mapOpenElectricityError = mapOpenElectricityError;
+module.exports.buildQueryString = buildQueryString;
+module.exports.getNemDateStart = getNemDateStart;

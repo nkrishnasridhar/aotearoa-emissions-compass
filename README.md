@@ -21,15 +21,15 @@ This dashboard displays:
   - **New Zealand**: Direct API calls to EM6 APIs
     - Carbon intensity: `https://api.em6.co.nz/ords/em6/data_api/current_carbon_intensity`
     - Generation mix: `https://api.em6.co.nz/ords/em6/data_api/free/price`
-  - **Australia**: Backend API (see below)
+  - **Australia**: OpenElectricity API via backend proxy
 
 ### Backend
 - **Framework**: Node.js with Express
 - **Port**: 5000
 - **Endpoints**:
-  - `GET /api/emissions/australia` - Returns emissions data for 5 Australian states
+  - `GET /api/emissions/australia` - Returns OpenElectricity NEM data for 5 Australian regions
   - `GET /health` - Health check endpoint
-- **Data**: Mock/random data (realistic values for demonstration purposes)
+- **Data**: Live OpenElectricity NEM generation, demand, and emissions data
 
 ## 🚀 Quick Start
 
@@ -49,10 +49,17 @@ cd emissions-dashboard
 ```bash
 cd backend
 npm install
+copy .env.example .env
 npm start
 ```
 
 The backend will start on `http://localhost:5000`
+
+Set your OpenElectricity API key in `backend/.env` before calling the Australian endpoint:
+
+```bash
+OPENELECTRICITY_API_KEY=your-api-key
+```
 
 To test it, open `http://localhost:5000/api/emissions/australia` in your browser
 
@@ -107,10 +114,11 @@ The frontend will start on `http://localhost:3000` and open automatically in you
 3. Displayed in real-time on the dashboard
 
 ### Australia
-1. Backend generates realistic mock data for 5 states (QLD, NSW, VIC, SA, TAS)
-2. Frontend fetches from backend API endpoint
-3. State data is aggregated into country-level totals
-4. Displayed alongside NZ data
+1. Backend fetches NEM data from OpenElectricity for QLD1, NSW1, VIC1, SA1, and TAS1
+2. Backend maps generation, demand, energy, and emissions into the dashboard response format
+3. Frontend fetches from backend API endpoint
+4. State data is aggregated into country-level totals
+5. Displayed alongside NZ data
 
 ## 🔧 API Details
 
@@ -142,7 +150,7 @@ The frontend will start on `http://localhost:3000` and open automatically in you
 ## 📝 Implementation Notes
 
 ### Australia Data
-As specified in the requirements, Australian data is served through a backend API. The current implementation uses **randomly generated mock data** that resembles realistic electricity grid values.
+Australian data is served through the backend so the OpenElectricity API key stays out of the browser. The backend queries OpenElectricity's NEM endpoints, maps fuel technology groups into the dashboard categories, and caches results briefly to reduce API usage during refreshes.
 
 ### Tech Decisions
 - **React + TypeScript**: Type safety and component reusability

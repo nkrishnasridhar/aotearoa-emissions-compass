@@ -37,7 +37,7 @@ const Dashboard: React.FC = () => {
 
         const auPromise = fetchAustraliaData().then(aggregateAustraliaData).catch((err) => {
             console.error("Error fetching AU data:", err);
-            setError("Unable to fetch Australia data. Backend server may be offline.");
+            setError("Unable to fetch Australia data. Australian data source may be unavailable.");
             return null;
         });
 
@@ -151,7 +151,7 @@ const Dashboard: React.FC = () => {
             </div>
 
             <footer className="dashboard-footer">
-                <p>Data sources: NZ - EM6 API | AU - Backend API</p>
+                <p>Data sources: NZ - EM6 API | AU - OpenElectricity API</p>
                 <p className="auto-refresh-note">Auto-refreshes every 5 minutes</p>
             </footer>
         </div>

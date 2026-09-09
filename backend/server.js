@@ -501,17 +501,30 @@ function transformOpenElectricityHistory(generationPayload, demandPayload, emiss
                 return createHistoryPoint({
                     ...record,
                     carbonIntensity_gCO2kWh: carbonIntensity,
+                    isComplete: isCompleteHistoryRecord(record, energyMWh, emissionsTCO2),
                 });
             })
+            .filter((point) => point.isComplete)
             .sort((left, right) => new Date(left.timestamp) - new Date(right.timestamp))
     );
 
-    const history = aggregateRegionHistory(regionHistory);
+    const history = smoothHistory(aggregateRegionHistory(regionHistory), 30);
 
     return {
         ...createHistoryResponse('Australia', history),
         regionHistory,
     };
+}
+
+function isCompleteHistoryRecord(record, energyMWh, emissionsTCO2) {
+    return (
+        Number.isFinite(record.totalDemandMW) &&
+        record.totalDemandMW > 0 &&
+        Object.keys(record.generationMix || {}).length > 0 &&
+        Number.isFinite(energyMWh) &&
+        energyMWh > 0 &&
+        Number.isFinite(emissionsTCO2)
+    );
 }
 
 function createRegionHistoryRecords() {
@@ -582,7 +595,62 @@ function createHistoryPoint(record) {
         totalDemandMW: record.totalDemandMW,
         carbonIntensity_gCO2kWh: record.carbonIntensity_gCO2kWh,
         generationMix: record.generationMix,
+        isComplete: record.isComplete,
     });
+}
+
+function smoothHistory(history, bucketMinutes = 30) {
+    const buckets = {};
+    const bucketMs = bucketMinutes * 60 * 1000;
+
+    history.forEach((point) => {
+        if (!isUsableHistoryPoint(point)) return;
+
+        const timestampMs = new Date(point.timestamp).getTime();
+        if (!Number.isFinite(timestampMs)) return;
+
+        const bucketTimestamp = new Date(Math.floor(timestampMs / bucketMs) * bucketMs).toISOString();
+        if (!buckets[bucketTimestamp]) {
+            buckets[bucketTimestamp] = {
+                country: point.country,
+                timestamp: bucketTimestamp,
+                totalDemandMW: 0,
+                carbonIntensityNumerator: 0,
+                generationMix: {},
+                samples: 0,
+                isComplete: true,
+            };
+        }
+
+        const bucket = buckets[bucketTimestamp];
+        bucket.totalDemandMW += point.totalDemandMW;
+        bucket.carbonIntensityNumerator += point.carbonIntensity_gCO2kWh * point.totalDemandMW;
+        bucket.samples += 1;
+
+        Object.entries(point.generationMix || {}).forEach(([fuel, value]) => {
+            bucket.generationMix[fuel] = (bucket.generationMix[fuel] || 0) + (value || 0);
+        });
+    });
+
+    return Object.values(buckets)
+        .map((bucket) =>
+            createHistoryPoint({
+                country: bucket.country,
+                timestamp: bucket.timestamp,
+                totalDemandMW: bucket.samples ? bucket.totalDemandMW / bucket.samples : 0,
+                carbonIntensity_gCO2kWh: bucket.totalDemandMW
+                    ? bucket.carbonIntensityNumerator / bucket.totalDemandMW
+                    : 0,
+                generationMix: Object.fromEntries(
+                    Object.entries(bucket.generationMix).map(([fuel, value]) => [
+                        fuel,
+                        bucket.samples ? value / bucket.samples : 0,
+                    ])
+                ),
+                isComplete: bucket.isComplete,
+            })
+        )
+        .sort((left, right) => new Date(left.timestamp) - new Date(right.timestamp));
 }
 
 function createHistoryResponse(country, history) {
@@ -784,8 +852,18 @@ function getLeadingFuel(generationMix) {
 
 function getCleanestWindow(history) {
     return [...history]
-        .filter((point) => Number.isFinite(point.carbonIntensity_gCO2kWh))
+        .filter((point) => isUsableHistoryPoint(point))
         .sort((left, right) => left.carbonIntensity_gCO2kWh - right.carbonIntensity_gCO2kWh)[0] || null;
+}
+
+function isUsableHistoryPoint(point) {
+    return (
+        Number.isFinite(point.carbonIntensity_gCO2kWh) &&
+        point.carbonIntensity_gCO2kWh > 0 &&
+        Number.isFinite(point.totalDemandMW) &&
+        point.totalDemandMW > 0 &&
+        Object.keys(point.generationMix || {}).length > 0
+    );
 }
 
 function getLatestTimestamp(timestamps) {

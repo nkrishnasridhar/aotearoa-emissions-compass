@@ -250,6 +250,13 @@
   min-height: 320px;
 }
 
+.chart-note {
+  margin: 10px 0 0;
+  color: #52616f;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
 .cleanest-row {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   margin-top: 16px;

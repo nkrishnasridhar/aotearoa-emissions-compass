@@ -199,11 +199,11 @@ test('transforms OpenElectricity time series into regional and aggregate history
             series('power', [
                 result('NSW1', 'NSW coal', 'coal', [
                     point('2026-09-03T01:00:00', 100),
-                    point('2026-09-03T01:05:00', 80),
+                    point('2026-09-03T01:35:00', 80),
                 ]),
                 result('QLD1', 'QLD wind', 'wind', [
                     point('2026-09-03T01:00:00', 40),
-                    point('2026-09-03T01:05:00', 60),
+                    point('2026-09-03T01:35:00', 60),
                 ]),
             ]),
         ]),
@@ -211,22 +211,22 @@ test('transforms OpenElectricity time series into regional and aggregate history
             series('demand', [
                 regionResult('NSW1', [
                     point('2026-09-03T01:00:00', 100),
-                    point('2026-09-03T01:05:00', 80),
+                    point('2026-09-03T01:35:00', 80),
                 ]),
                 regionResult('QLD1', [
                     point('2026-09-03T01:00:00', 40),
-                    point('2026-09-03T01:05:00', 60),
+                    point('2026-09-03T01:35:00', 60),
                 ]),
             ]),
         ]),
         payload([
             series('energy', [
-                regionResult('NSW1', [point('2026-09-03T01:00:00', 10), point('2026-09-03T01:05:00', 10)]),
-                regionResult('QLD1', [point('2026-09-03T01:00:00', 10), point('2026-09-03T01:05:00', 10)]),
+                regionResult('NSW1', [point('2026-09-03T01:00:00', 10), point('2026-09-03T01:35:00', 10)]),
+                regionResult('QLD1', [point('2026-09-03T01:00:00', 10), point('2026-09-03T01:35:00', 10)]),
             ]),
             series('emissions', [
-                regionResult('NSW1', [point('2026-09-03T01:00:00', 5), point('2026-09-03T01:05:00', 4)]),
-                regionResult('QLD1', [point('2026-09-03T01:00:00', 1), point('2026-09-03T01:05:00', 1)]),
+                regionResult('NSW1', [point('2026-09-03T01:00:00', 5), point('2026-09-03T01:35:00', 4)]),
+                regionResult('QLD1', [point('2026-09-03T01:00:00', 1), point('2026-09-03T01:35:00', 1)]),
             ]),
         ])
     );
@@ -234,8 +234,41 @@ test('transforms OpenElectricity time series into regional and aggregate history
     assert.equal(history.country, 'Australia');
     assert.equal(history.history.length, 2);
     assert.equal(history.regionHistory.length, 4);
-    assert.equal(history.cleanestWindow.timestamp, '2026-09-03T01:05:00');
+    assert.equal(history.cleanestWindow.timestamp, '2026-09-02T13:30:00.000Z');
     assert.equal(Math.round(history.history[1].carbonIntensity_gCO2kWh), 271);
+});
+
+test('filters incomplete OpenElectricity history intervals out of cleanest window', () => {
+    const history = transformOpenElectricityHistory(
+        payload([
+            series('power', [
+                result('NSW1', 'NSW wind', 'wind', [
+                    point('2026-09-03T01:00:00', 50),
+                    point('2026-09-03T01:35:00', 60),
+                ]),
+            ]),
+        ]),
+        payload([
+            series('demand', [
+                regionResult('NSW1', [
+                    point('2026-09-03T01:00:00', 50),
+                    point('2026-09-03T01:35:00', 60),
+                ]),
+            ]),
+        ]),
+        payload([
+            series('energy', [
+                regionResult('NSW1', [point('2026-09-03T01:35:00', 10)]),
+            ]),
+            series('emissions', [
+                regionResult('NSW1', [point('2026-09-03T01:35:00', 2)]),
+            ]),
+        ])
+    );
+
+    assert.equal(history.history.length, 1);
+    assert.equal(history.cleanestWindow.timestamp, '2026-09-02T13:30:00.000Z');
+    assert.equal(history.cleanestWindow.carbonIntensity_gCO2kWh, 200);
 });
 
 test('transforms EM6 carbon items into New Zealand history', () => {

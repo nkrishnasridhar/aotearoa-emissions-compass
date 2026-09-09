@@ -226,6 +226,10 @@ const Dashboard: React.FC = () => {
                         <div className="empty-panel">No history available yet.</div>
                     )}
                 </div>
+                <p className="chart-note">
+                    Australia is shown as a 30-minute smoothed NEM aggregate to make the dense 5-minute data readable.
+                    New Zealand shows the recent carbon samples currently exposed by EM6, so that line can be shorter.
+                </p>
                 <div className="cleanest-row">
                     <CleanestWindow label="NZ cleanest recent window" window={nzHistory?.cleanestWindow || null} />
                     <CleanestWindow label="AU cleanest recent window" window={auHistory?.cleanestWindow || null} />
@@ -448,21 +452,30 @@ function buildInsights(nz: EmissionsData | null, au: EmissionsData | null, auSta
     return insights;
 }
 
+interface TrendPoint {
+    timestamp: string;
+    time: string;
+    nz?: number;
+    au?: number;
+}
+
 function buildTrendData(nzHistory: HistoryResponse | null, auHistory: HistoryResponse | null, metric: TrendMetric) {
-    const points = new Map<string, { time: string; nz?: number; au?: number }>();
+    const points = new Map<string, TrendPoint>();
 
     addTrendSeries(points, "nz", nzHistory?.history || [], metric);
     addTrendSeries(points, "au", auHistory?.history || [], metric);
 
-    return Array.from(points.values()).sort((left, right) => left.time.localeCompare(right.time));
+    return Array.from(points.values()).sort((left, right) => new Date(left.timestamp).getTime() - new Date(right.timestamp).getTime());
 }
 
-function addTrendSeries(points: Map<string, { time: string; nz?: number; au?: number }>, key: "nz" | "au", history: EmissionsData[], metric: TrendMetric) {
+function addTrendSeries(points: Map<string, TrendPoint>, key: "nz" | "au", history: EmissionsData[], metric: TrendMetric) {
     history.forEach((point) => {
-        const time = formatShortTime(point.timestamp);
-        const existing = points.get(time) || { time };
+        const existing = points.get(point.timestamp) || {
+            timestamp: point.timestamp,
+            time: formatShortTime(point.timestamp),
+        };
         existing[key] = getTrendMetricValue(point, metric);
-        points.set(time, existing);
+        points.set(point.timestamp, existing);
     });
 }
 

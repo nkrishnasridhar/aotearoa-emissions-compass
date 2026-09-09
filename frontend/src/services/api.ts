@@ -46,6 +46,12 @@ export interface EmissionsData {
     gridSignal?: GridSignal;
     signalReason?: string;
     confidence?: Confidence;
+    dataSources?: string[];
+    historyCoverage?: 'limited' | 'partial' | 'full';
+    dataNotes?: string;
+    leadingRenewableFuel?: string | null;
+    leadingThermalFuel?: string | null;
+    thermalSharePercentage?: number;
 }
 
 export interface HistoryResponse {
@@ -53,6 +59,9 @@ export interface HistoryResponse {
     history: EmissionsData[];
     cleanestWindow: EmissionsData | null;
     regionHistory?: EmissionsData[];
+    dataSources?: string[];
+    historyCoverage?: 'limited' | 'partial' | 'full';
+    dataNotes?: string;
 }
 
 export interface PlannerInput {
@@ -80,6 +89,8 @@ export interface PlannerEstimate {
     };
     savingsKgCO2e: number;
     recommendation: string;
+    dataNotes?: string;
+    historyCoverage?: 'limited' | 'partial' | 'full';
 }
 
 export async function fetchAustraliaData(): Promise<EmissionsData[]> {

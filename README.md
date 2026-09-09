@@ -1,6 +1,6 @@
 # Live Emissions & Generation Mix Dashboard
 
-A deployed grid timing decision tool for comparing electricity carbon intensity and generation mix between New Zealand and Australia.
+A grid timing decision tool for comparing electricity carbon intensity and generation mix between New Zealand and Australia.
 
 ## Overview
 
@@ -21,7 +21,7 @@ It shows:
 - Automatic refresh every 5 minutes
 - Manual refresh for on-demand updates
 
-New Zealand data comes from EM6. Australian data comes from OpenElectricity for the National Electricity Market regions `QLD1`, `NSW1`, `VIC1`, `SA1`, and `TAS1`, then the frontend aggregates those regions into a country-level Australia card.
+New Zealand data uses a free-first provider approach: EM6 free feeds provide current carbon intensity and generation context, with optional backend configuration reserved for richer registered Electricity Authority data later. Australian data comes from OpenElectricity for the National Electricity Market regions `QLD1`, `NSW1`, `VIC1`, `SA1`, and `TAS1`, then the frontend aggregates those regions into a country-level Australia card.
 
 ## Architecture
 
@@ -42,7 +42,8 @@ New Zealand data comes from EM6. Australian data comes from OpenElectricity for 
   - `POST /api/planner/estimate` - Estimates emissions for a selected activity
   - `GET /health` - Health check endpoint
 - **External sources**:
-  - EM6 current carbon intensity and generation data for New Zealand
+  - EM6 free current carbon intensity and generation data for New Zealand
+  - Optional registered Electricity Authority provider configuration for future NZ real-time data
   - OpenElectricity generation, demand, energy, and emissions data for Australia
 
 ## Running Locally
@@ -68,6 +69,14 @@ Create `backend/.env` from `backend/.env.example` and set your OpenElectricity A
 
 ```bash
 OPENELECTRICITY_API_KEY=your-api-key
+```
+
+Optional NZ real-time provider settings can be added later if you have a registered free Electricity Authority API configuration:
+
+```bash
+NZ_REALTIME_PROVIDER=ea
+EA_API_KEY=your-ea-api-key
+EA_API_BASE_URL=your-ea-api-base-url
 ```
 
 The backend will start on `http://localhost:5000`.
@@ -115,9 +124,9 @@ The frontend will start on `http://localhost:3000` and open automatically in you
 1. Backend fetches from two EM6 APIs simultaneously:
    - Carbon intensity API for emissions data
    - Generation price API for fuel mix data
-2. Data is parsed and combined into the dashboard response format
-3. Frontend fetches from backend API endpoint
-4. Displayed in real-time on the dashboard
+2. Backend marks free EM6 carbon history as limited because it only covers the most recent trading periods
+3. Backend adds NZ-specific source metadata, leading renewable fuel, leading thermal fuel, and thermal share
+4. Frontend fetches from backend API endpoint and displays data coverage clearly
 
 ### Australia
 1. Backend fetches NEM data from OpenElectricity for QLD1, NSW1, VIC1, SA1, and TAS1
@@ -151,6 +160,10 @@ The frontend will start on `http://localhost:3000` and open automatically in you
 ### EM6 APIs Used
 - **Carbon Intensity**: Returns real-time carbon emissions (`gCO2/kWh`) and renewable percentage
 - **Generation Mix**: Returns daily generation by fuel type (MWh)
+
+### Optional NZ Provider Hooks
+- **Electricity Authority**: Optional registered/free provider configuration is supported for future richer NZ generation and demand history
+- **Free-first fallback**: If optional NZ provider config is absent, the backend keeps using EM6 free feeds and marks history coverage as limited
 
 ### OpenElectricity APIs Used
 - **Generation**: NEM power data grouped by region and fuel technology group

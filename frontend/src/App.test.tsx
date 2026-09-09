@@ -1,7 +1,28 @@
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
-jest.mock('./services/api', () => {
+jest.mock('./services/api', () => ({
+  __esModule: true,
+  fetchNewZealandData: jest.fn(),
+  fetchAustraliaData: jest.fn(),
+  fetchNewZealandHistory: jest.fn(),
+  fetchAustraliaHistory: jest.fn(),
+  estimateActivity: jest.fn(),
+  aggregateAustraliaData: jest.fn(),
+  calculateRenewablePercentage: jest.fn(() => 23),
+}));
+
+import App from './App';
+import {
+  aggregateAustraliaData,
+  estimateActivity,
+  fetchAustraliaData,
+  fetchAustraliaHistory,
+  fetchNewZealandData,
+  fetchNewZealandHistory,
+} from './services/api';
+
+test('renders the grid timing decision dashboard', async () => {
   const currentNz = {
     country: 'New Zealand',
     timestamp: '2026-09-03T09:00:00Z',
@@ -13,6 +34,12 @@ jest.mock('./services/api', () => {
     gridSignal: 'Use now',
     signalReason: 'Low-carbon window.',
     confidence: 'High',
+    dataSources: ['EM6 free current carbon intensity', 'EM6 free generation quantities'],
+    historyCoverage: 'limited',
+    dataNotes: 'EM6 free carbon feed provides the last three trading periods.',
+    leadingRenewableFuel: 'hydro',
+    leadingThermalFuel: 'gas',
+    thermalSharePercentage: 3,
   };
   const auStates = [
     {
@@ -45,50 +72,55 @@ jest.mock('./services/api', () => {
     country: 'New Zealand',
     history: [currentNz],
     cleanestWindow: currentNz,
+    historyCoverage: 'limited',
+    dataSources: ['EM6 free current carbon intensity', 'EM6 free generation quantities'],
+    dataNotes: 'EM6 free carbon feed provides the last three trading periods.',
   };
 
-  return {
-    __esModule: true,
-    fetchNewZealandData: jest.fn(() => Promise.resolve(currentNz)),
-    fetchAustraliaData: jest.fn(() => Promise.resolve(auStates)),
-    fetchNewZealandHistory: jest.fn(() => Promise.resolve(history)),
-    fetchAustraliaHistory: jest.fn(() => Promise.resolve({ ...history, country: 'Australia' })),
-    estimateActivity: jest.fn(() => Promise.resolve({
-      country: 'Australia',
-      region: null,
-      kWh: 10,
-      durationHours: 2,
-      now: {
-        timestamp: '2026-09-03T09:00:00Z',
-        carbonIntensity_gCO2kWh: 520,
-        estimatedKgCO2e: 5.2,
-        gridSignal: 'Wait',
-      },
-      cleanerWindow: {
-        timestamp: '2026-09-03T08:00:00Z',
-        carbonIntensity_gCO2kWh: 300,
-        estimatedKgCO2e: 3,
-      },
-      savingsKgCO2e: 2.2,
-      recommendation: 'Delay if you can.',
-    })),
-    aggregateAustraliaData: jest.fn(() => currentAu),
-    calculateRenewablePercentage: jest.fn(() => 23),
-  };
-});
+  (fetchNewZealandData as jest.Mock).mockResolvedValue(currentNz);
+  (fetchAustraliaData as jest.Mock).mockResolvedValue(auStates);
+  (fetchNewZealandHistory as jest.Mock).mockResolvedValue(history);
+  (fetchAustraliaHistory as jest.Mock).mockResolvedValue({ ...history, country: 'Australia' });
+  (aggregateAustraliaData as jest.Mock).mockReturnValue(currentAu);
+  (estimateActivity as jest.Mock).mockResolvedValue({
+    country: 'Australia',
+    region: null,
+    kWh: 10,
+    durationHours: 2,
+    now: {
+      timestamp: '2026-09-03T09:00:00Z',
+      carbonIntensity_gCO2kWh: 520,
+      estimatedKgCO2e: 5.2,
+      gridSignal: 'Wait',
+    },
+    cleanerWindow: {
+      timestamp: '2026-09-03T08:00:00Z',
+      carbonIntensity_gCO2kWh: 300,
+      estimatedKgCO2e: 3,
+    },
+    savingsKgCO2e: 2.2,
+    recommendation: 'Delay if you can.',
+    historyCoverage: 'limited',
+    dataNotes: 'EM6 free carbon feed provides the last three trading periods.',
+  });
 
-import App from './App';
-
-test('renders the grid timing decision dashboard', async () => {
   render(<App />);
 
-  await waitFor(() => {
-    expect(screen.getByText(/Is now a clean time to use electricity/i)).toBeInTheDocument();
-  });
+  expect(await screen.findByText(/Is now a clean time to use electricity/i)).toBeInTheDocument();
+  await waitFor(() => expect(fetchNewZealandData).toHaveBeenCalled());
+  await waitFor(() => expect(fetchNewZealandHistory).toHaveBeenCalled());
 
   expect(screen.getByText(/Grid timing decision tool/i)).toBeInTheDocument();
   expect(screen.getByText(/Activity Planner/i)).toBeInTheDocument();
   expect(screen.getByText(/Recent Grid Trend/i)).toBeInTheDocument();
   expect(screen.getByText(/Australia Regional Breakdown/i)).toBeInTheDocument();
+  expect(await screen.findByText(/NZ: Limited recent carbon samples/i)).toBeInTheDocument();
+  expect(screen.getByText(/NZ driver/i)).toBeInTheDocument();
   expect(screen.getByRole('button', { name: /Estimate/i })).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole('button', { name: /Estimate/i }));
+
+  await waitFor(() => {
+    expect(screen.getByText(/EM6 free carbon feed provides the last three trading periods/i)).toBeInTheDocument();
+  });
 });

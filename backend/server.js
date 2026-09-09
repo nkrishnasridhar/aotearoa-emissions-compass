@@ -9,6 +9,7 @@ const OPEN_ELECTRICITY_BASE_URL =
     process.env.OPENELECTRICITY_API_BASE_URL || 'https://api.openelectricity.org.au/v4';
 const NZ_CARBON_API_URL = 'https://api.em6.co.nz/ords/em6/data_api/current_carbon_intensity';
 const NZ_GENERATION_API_URL = 'https://api.em6.co.nz/ords/em6/data_api/free/price';
+const NZ_EM6_FREE_NOTE = 'EM6 free carbon feed provides the last three trading periods; 24-hour NZ carbon history requires a richer registered or paid feed.';
 const NEM_REGIONS = {
     QLD1: 'QLD',
     NSW1: 'NSW',
@@ -134,6 +135,8 @@ function createApp(options = {}) {
         res.json({
             status: 'ok',
             timestamp: new Date().toISOString(),
+            nzProvider: getNzProviderStatus(),
+            electricityAuthorityConfigured: Boolean(process.env.EA_API_KEY && process.env.EA_API_BASE_URL),
             openElectricityConfigured: Boolean(process.env.OPENELECTRICITY_API_KEY),
         });
     });
@@ -209,24 +212,59 @@ async function fetchAustraliaHistory(httpClient = axios, hours = 24) {
 }
 
 async function fetchNewZealandData(httpClient = axios) {
-    const [carbonResponse, generationResponse] = await Promise.all([
-        httpClient.get(NZ_CARBON_API_URL, { timeout: 15000 }),
-        httpClient.get(NZ_GENERATION_API_URL, { timeout: 15000 }),
+    const [carbonResponse, generationResponse, realtimeData] = await Promise.all([
+        fetchNzCarbonFromEm6Free(httpClient),
+        fetchNzGenerationFromEm6Free(httpClient),
+        fetchNzRealtimeFromElectricityAuthority(httpClient),
     ]);
 
-    return enrichEmissionRecord(transformNewZealandData(carbonResponse.data, generationResponse.data));
+    return enrichEmissionRecord(
+        transformNewZealandData(carbonResponse.data, generationResponse.data, realtimeData)
+    );
 }
 
 async function fetchNewZealandHistory(httpClient = axios, hours = 24) {
-    const [carbonResponse, generationResponse] = await Promise.all([
-        httpClient.get(NZ_CARBON_API_URL, { timeout: 15000 }),
-        httpClient.get(NZ_GENERATION_API_URL, { timeout: 15000 }),
+    const [carbonResponse, generationResponse, realtimeData] = await Promise.all([
+        fetchNzCarbonFromEm6Free(httpClient),
+        fetchNzGenerationFromEm6Free(httpClient),
+        fetchNzRealtimeFromElectricityAuthority(httpClient),
     ]);
 
-    return transformNewZealandHistory(carbonResponse.data, generationResponse.data, hours);
+    return transformNewZealandHistory(carbonResponse.data, generationResponse.data, hours, realtimeData);
 }
 
-function transformNewZealandData(carbonData, generationData) {
+async function fetchNzCarbonFromEm6Free(httpClient) {
+    return httpClient.get(NZ_CARBON_API_URL, { timeout: 15000 });
+}
+
+async function fetchNzGenerationFromEm6Free(httpClient) {
+    return httpClient.get(NZ_GENERATION_API_URL, { timeout: 15000 });
+}
+
+async function fetchNzRealtimeFromElectricityAuthority(httpClient) {
+    if ((process.env.NZ_REALTIME_PROVIDER || 'em6-free') !== 'ea') {
+        return null;
+    }
+
+    if (!process.env.EA_API_KEY || !process.env.EA_API_BASE_URL) {
+        console.warn('NZ_REALTIME_PROVIDER is set to ea, but EA_API_KEY or EA_API_BASE_URL is missing; falling back to EM6 free data.');
+        return null;
+    }
+
+    // Placeholder for a future documented EA real-time dispatch mapping. The provider
+    // hook is intentionally non-blocking so free EM6 data remains the default.
+    return null;
+}
+
+function getNzProviderStatus() {
+    if ((process.env.NZ_REALTIME_PROVIDER || 'em6-free') === 'ea' && process.env.EA_API_KEY && process.env.EA_API_BASE_URL) {
+        return 'ea';
+    }
+
+    return 'em6-free';
+}
+
+function transformNewZealandData(carbonData, generationData, realtimeData = null) {
     const latestCarbon = carbonData.items?.[0];
     if (!latestCarbon) {
         throw new Error('No carbon intensity data available.');
@@ -258,16 +296,20 @@ function transformNewZealandData(carbonData, generationData) {
     return {
         country: 'New Zealand',
         timestamp: latestCarbon.timestamp || new Date().toISOString(),
-        totalDemandMW: totalGeneration,
+        totalDemandMW: realtimeData?.totalDemandMW || totalGeneration,
         carbonIntensity_gCO2kWh: parseFloat(latestCarbon.nz_carbon_gkwh) || 0,
         generationMix,
+        renewablePercentage: getEm6RenewablePercentage(latestCarbon),
+        dataSources: ['EM6 free current carbon intensity', 'EM6 free generation quantities'],
+        historyCoverage: 'limited',
+        dataNotes: NZ_EM6_FREE_NOTE,
     };
 }
 
-function transformNewZealandHistory(carbonData, generationData, hours = 24) {
+function transformNewZealandHistory(carbonData, generationData, hours = 24, realtimeData = null) {
     const latestGeneration = generationData.items?.[0];
     const generationMix = latestGeneration ? getNewZealandGenerationMix(latestGeneration) : {};
-    const totalDemandMW = Object.values(generationMix).reduce((sum, value) => sum + value, 0);
+    const totalDemandMW = realtimeData?.totalDemandMW || Object.values(generationMix).reduce((sum, value) => sum + value, 0);
     const cutoff = Date.now() - hours * 60 * 60 * 1000;
 
     const history = (carbonData.items || [])
@@ -278,12 +320,35 @@ function transformNewZealandHistory(carbonData, generationData, hours = 24) {
                 totalDemandMW,
                 carbonIntensity_gCO2kWh: parseFloat(item.nz_carbon_gkwh) || 0,
                 generationMix,
+                renewablePercentage: getEm6RenewablePercentage(item),
+                dataSources: ['EM6 free current carbon intensity', 'EM6 free generation quantities'],
+                historyCoverage: 'limited',
+                dataNotes: NZ_EM6_FREE_NOTE,
             })
         )
         .filter((point) => new Date(point.timestamp).getTime() >= cutoff)
         .sort((left, right) => new Date(left.timestamp) - new Date(right.timestamp));
 
-    return createHistoryResponse('New Zealand', history);
+    return {
+        ...createHistoryResponse('New Zealand', history),
+        historyCoverage: 'limited',
+        dataSources: ['EM6 free current carbon intensity', 'EM6 free generation quantities'],
+        dataNotes: NZ_EM6_FREE_NOTE,
+    };
+}
+
+function getEm6RenewablePercentage(carbonItem = {}) {
+    const candidates = [
+        carbonItem.renewable_percentage,
+        carbonItem.renewable_percent,
+        carbonItem.renewables_percentage,
+        carbonItem.renewables_percent,
+        carbonItem.renewable_generation_percentage,
+        carbonItem.nz_renewable_percentage,
+    ];
+    const value = candidates.map(Number).find((candidate) => Number.isFinite(candidate));
+
+    return value === undefined ? undefined : Math.round(value);
 }
 
 function getNewZealandGenerationMix(latestGeneration) {
@@ -596,6 +661,10 @@ function createHistoryPoint(record) {
         carbonIntensity_gCO2kWh: record.carbonIntensity_gCO2kWh,
         generationMix: record.generationMix,
         isComplete: record.isComplete,
+        renewablePercentage: record.renewablePercentage,
+        dataSources: record.dataSources,
+        historyCoverage: record.historyCoverage,
+        dataNotes: record.dataNotes,
     });
 }
 
@@ -718,6 +787,8 @@ function createPlannerEstimate(country, region, kWh, durationHours, currentRecor
         region,
         kWh,
         durationHours,
+        dataNotes: currentRecord.dataNotes || cleanestWindow.dataNotes,
+        historyCoverage: currentRecord.historyCoverage || cleanestWindow.historyCoverage,
         now: {
             timestamp: currentRecord.timestamp,
             carbonIntensity_gCO2kWh: currentRecord.carbonIntensity_gCO2kWh,
@@ -770,19 +841,35 @@ function aggregateRecords(country, records) {
 }
 
 function enrichEmissionRecord(record) {
-    const renewablePercentage = calculateRenewablePercentage(record.generationMix);
+    const renewablePercentage = Number.isFinite(record.renewablePercentage)
+        ? record.renewablePercentage
+        : calculateRenewablePercentage(record.generationMix);
     const dataFreshnessMinutes = calculateDataFreshnessMinutes(record.timestamp);
     const confidence = getConfidence(record, dataFreshnessMinutes);
     const signal = classifyGridSignal(record.carbonIntensity_gCO2kWh, renewablePercentage);
     const leadingFuel = getLeadingFuel(record.generationMix);
+    const leadingRenewableFuel = getLeadingFuelByType(record.generationMix, ['hydro', 'wind', 'solar', 'geothermal']);
+    const leadingThermalFuel = getLeadingFuelByType(record.generationMix, ['coal', 'gas']);
+    const thermalSharePercentage = calculateFuelSharePercentage(record.generationMix, ['coal', 'gas']);
 
     return {
         ...record,
         renewablePercentage,
         dataFreshnessMinutes,
         gridSignal: signal,
-        signalReason: createSignalReason(signal, record.carbonIntensity_gCO2kWh, renewablePercentage, leadingFuel),
+        signalReason: createSignalReason(
+            signal,
+            record.carbonIntensity_gCO2kWh,
+            renewablePercentage,
+            leadingFuel,
+            record.country,
+            leadingRenewableFuel,
+            thermalSharePercentage
+        ),
         confidence,
+        leadingRenewableFuel,
+        leadingThermalFuel,
+        thermalSharePercentage,
     };
 }
 
@@ -829,9 +916,16 @@ function classifyGridSignal(carbonIntensity, renewablePercentage) {
     return 'Wait';
 }
 
-function createSignalReason(signal, carbonIntensity, renewablePercentage, leadingFuel) {
+function createSignalReason(signal, carbonIntensity, renewablePercentage, leadingFuel, country, leadingRenewableFuel, thermalSharePercentage) {
     const roundedIntensity = Math.round(carbonIntensity);
     const fuelText = leadingFuel ? `${leadingFuel} is the largest visible source` : 'generation mix is incomplete';
+
+    if (country === 'New Zealand' && leadingRenewableFuel) {
+        const thermalText = Number.isFinite(thermalSharePercentage)
+            ? `thermal share is ${thermalSharePercentage}%`
+            : 'thermal share is unavailable';
+        return `NZ signal: ${roundedIntensity} gCO2/kWh and ${renewablePercentage}% renewable. ${leadingRenewableFuel} leads the mix and ${thermalText}.`;
+    }
 
     if (signal === 'Use now') {
         return `Low-carbon window: ${roundedIntensity} gCO2/kWh and ${renewablePercentage}% renewable. ${fuelText}.`;
@@ -848,6 +942,20 @@ function getLeadingFuel(generationMix) {
     return Object.entries(generationMix || {})
         .filter(([, value]) => value > 0)
         .sort((left, right) => right[1] - left[1])[0]?.[0] || null;
+}
+
+function getLeadingFuelByType(generationMix, fuels) {
+    return fuels
+        .map((fuel) => [fuel, generationMix?.[fuel] || 0])
+        .filter(([, value]) => value > 0)
+        .sort((left, right) => right[1] - left[1])[0]?.[0] || null;
+}
+
+function calculateFuelSharePercentage(generationMix, fuels) {
+    const total = Object.values(generationMix || {}).reduce((sum, value) => sum + (value || 0), 0);
+    const fuelTotal = fuels.reduce((sum, fuel) => sum + (generationMix?.[fuel] || 0), 0);
+
+    return total > 0 ? Math.round(fuelTotal / total * 100) : 0;
 }
 
 function getCleanestWindow(history) {

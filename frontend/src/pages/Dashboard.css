@@ -257,6 +257,32 @@
   line-height: 1.5;
 }
 
+.coverage-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.coverage-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid #bac8d3;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #334e68;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.coverage-badge.limited {
+  border-color: #d69e2e;
+  color: #8a5a10;
+  background: #fffaf0;
+}
+
 .cleanest-row {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   margin-top: 16px;
@@ -311,6 +337,12 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
   margin-top: 16px;
+}
+
+.planner-note {
+  margin: 10px 0 0;
+  color: #52616f;
+  font-size: 0.9rem;
 }
 
 .planner-result > div {

@@ -63,31 +63,36 @@ const Dashboard: React.FC = () => {
         setLoading(true);
         const nextErrors: string[] = [];
 
-        const nzPromise = Promise.all([
-            fetchNewZealandData(),
-            fetchNewZealandHistory(24),
-        ]).then(([current, history]) => {
+        const [nzResult, auResult] = await Promise.allSettled([
+            Promise.all([
+                fetchNewZealandData(),
+                fetchNewZealandHistory(24),
+            ]),
+            Promise.all([
+                fetchAustraliaData(),
+                fetchAustraliaHistory(24),
+            ]),
+        ]);
+
+        if (nzResult.status === "fulfilled") {
+            const [current, history] = nzResult.value;
             setNzData(current);
             setNzHistory(history);
-        }).catch((err) => {
-            console.error("Error fetching NZ data:", err);
+        } else {
+            console.error("Error fetching NZ data:", nzResult.reason);
             nextErrors.push("New Zealand data is temporarily unavailable.");
-        });
+        }
 
-        const auPromise = Promise.all([
-            fetchAustraliaData(),
-            fetchAustraliaHistory(24),
-        ]).then(([states, history]) => {
+        if (auResult.status === "fulfilled") {
+            const [states, history] = auResult.value;
             const stateRecords = Array.isArray(states) ? states : [];
             setAuStates(stateRecords);
             setAuData(aggregateAustraliaData(stateRecords));
             setAuHistory(history);
-        }).catch((err) => {
-            console.error("Error fetching AU data:", err);
+        } else {
+            console.error("Error fetching AU data:", auResult.reason);
             nextErrors.push("Australian data is temporarily unavailable.");
-        });
-
-        await Promise.all([nzPromise, auPromise]);
+        }
 
         setErrors(nextErrors);
         setLastUpdated(new Date());
@@ -226,9 +231,14 @@ const Dashboard: React.FC = () => {
                         <div className="empty-panel">No history available yet.</div>
                     )}
                 </div>
+                <div className="coverage-row" aria-label="Data coverage">
+                    <CoverageBadge country="NZ" coverage={nzHistory?.historyCoverage} note={nzHistory?.dataNotes} />
+                    <CoverageBadge country="AU" coverage={auHistory?.historyCoverage || "full"} note={auHistory?.dataNotes || "Smoothed 30-minute OpenElectricity NEM history."} />
+                </div>
                 <p className="chart-note">
-                    Australia is shown as a 30-minute smoothed NEM aggregate to make the dense 5-minute data readable.
-                    New Zealand shows the recent carbon samples currently exposed by EM6, so that line can be shorter.
+                    {nzHistory?.historyCoverage === "limited"
+                        ? "New Zealand free carbon history is limited to recent EM6 samples, while Australia is shown as a smoothed 30-minute NEM aggregate."
+                        : "Australia is shown as a 30-minute smoothed NEM aggregate to make the dense 5-minute data readable."}
                 </p>
                 <div className="cleanest-row">
                     <CleanestWindow label="NZ cleanest recent window" window={nzHistory?.cleanestWindow || null} />
@@ -364,23 +374,28 @@ function CountryDetailCard({ title, data }: { title: string; data: EmissionsData
 
 function PlannerResult({ estimate }: { estimate: PlannerEstimate }) {
     return (
-        <div className="planner-result">
-            <div>
-                <span>Run now</span>
-                <strong>{estimate.now.estimatedKgCO2e.toFixed(2)} kg CO2e</strong>
-                <p>{estimate.now.carbonIntensity_gCO2kWh.toFixed(0)} gCO2/kWh</p>
+        <>
+            <div className="planner-result">
+                <div>
+                    <span>Run now</span>
+                    <strong>{estimate.now.estimatedKgCO2e.toFixed(2)} kg CO2e</strong>
+                    <p>{estimate.now.carbonIntensity_gCO2kWh.toFixed(0)} gCO2/kWh</p>
+                </div>
+                <div>
+                    <span>Cleanest recent window</span>
+                    <strong>{estimate.cleanerWindow.estimatedKgCO2e.toFixed(2)} kg CO2e</strong>
+                    <p>{formatTimestamp(estimate.cleanerWindow.timestamp)}</p>
+                </div>
+                <div>
+                    <span>Potential saving</span>
+                    <strong>{estimate.savingsKgCO2e.toFixed(2)} kg CO2e</strong>
+                    <p>{estimate.recommendation}</p>
+                </div>
             </div>
-            <div>
-                <span>Cleanest recent window</span>
-                <strong>{estimate.cleanerWindow.estimatedKgCO2e.toFixed(2)} kg CO2e</strong>
-                <p>{formatTimestamp(estimate.cleanerWindow.timestamp)}</p>
-            </div>
-            <div>
-                <span>Potential saving</span>
-                <strong>{estimate.savingsKgCO2e.toFixed(2)} kg CO2e</strong>
-                <p>{estimate.recommendation}</p>
-            </div>
-        </div>
+            {estimate.historyCoverage === "limited" && estimate.dataNotes && (
+                <p className="planner-note">{estimate.dataNotes}</p>
+            )}
+        </>
     );
 }
 
@@ -435,6 +450,17 @@ function buildInsights(nz: EmissionsData | null, au: EmissionsData | null, auSta
         });
     }
 
+    if (nz) {
+        const leadingRenewable = nz.leadingRenewableFuel || getLeadingRenewableFuel(nz.generationMix);
+        const thermalShare = nz.thermalSharePercentage ?? getFuelShare(nz.generationMix, ["coal", "gas"]);
+
+        insights.push({
+            label: "NZ driver",
+            value: capitalize(leadingRenewable || "Unknown"),
+            detail: `${capitalize(leadingRenewable || "Unknown")} leads the visible NZ mix; thermal share is ${thermalShare}%.`,
+        });
+    }
+
     if (nz && au) {
         insights.push({
             label: "Renewables now",
@@ -450,6 +476,20 @@ function buildInsights(nz: EmissionsData | null, au: EmissionsData | null, auSta
     });
 
     return insights;
+}
+
+function CoverageBadge({ country, coverage, note }: { country: string; coverage?: string; note?: string }) {
+    const label = coverage === "limited"
+        ? "Limited recent carbon samples"
+        : coverage === "partial"
+            ? "Partial recent history"
+            : "Full recent history";
+
+    return (
+        <span className={`coverage-badge ${coverage || "full"}`} title={note || label}>
+            {country}: {label}
+        </span>
+    );
 }
 
 interface TrendPoint {
@@ -505,6 +545,20 @@ function getLeadingFuel(mix: { [key: string]: number | undefined }) {
     return Object.entries(mix)
         .filter(([, value]) => (value || 0) > 0)
         .sort((left, right) => (right[1] || 0) - (left[1] || 0))[0]?.[0] || null;
+}
+
+function getLeadingRenewableFuel(mix: { [key: string]: number | undefined }) {
+    return ["hydro", "wind", "solar", "geothermal"]
+        .map((fuel) => [fuel, mix[fuel] || 0] as const)
+        .filter(([, value]) => value > 0)
+        .sort((left, right) => right[1] - left[1])[0]?.[0] || null;
+}
+
+function getFuelShare(mix: { [key: string]: number | undefined }, fuels: string[]) {
+    const total = Object.values(mix).reduce((sum: number, value) => sum + (value || 0), 0);
+    const fuelTotal = fuels.reduce((sum, fuel) => sum + (mix[fuel] || 0), 0);
+
+    return total > 0 ? Math.round(fuelTotal / total * 100) : 0;
 }
 
 function getSignalClass(signal?: string) {

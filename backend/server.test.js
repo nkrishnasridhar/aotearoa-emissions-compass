@@ -5,7 +5,11 @@ const test = require('node:test');
 const {
     createApp,
     transformOpenElectricityData,
+    transformOpenElectricityHistory,
     transformNewZealandData,
+    transformNewZealandHistory,
+    calculateRenewablePercentage,
+    classifyGridSignal,
     mapFuelGroup,
     mapOpenElectricityError,
     buildQueryString,
@@ -68,6 +72,13 @@ test('builds repeated query params for OpenElectricity array parameters', () => 
         }),
         'metrics=energy&metrics=emissions&interval=5m&primary_grouping=network_region'
     );
+});
+
+test('calculates renewable percentage and classifies grid signal', () => {
+    assert.equal(calculateRenewablePercentage({ hydro: 40, wind: 30, gas: 30 }), 70);
+    assert.equal(classifyGridSignal(120, 30), 'Use now');
+    assert.equal(classifyGridSignal(320, 55), 'Wait');
+    assert.equal(classifyGridSignal(620, 20), 'Avoid peak');
 });
 
 test('transforms latest OpenElectricity series into frontend state records', () => {
@@ -182,6 +193,80 @@ test('transforms EM6 New Zealand responses into frontend country record', () => 
     });
 });
 
+test('transforms OpenElectricity time series into regional and aggregate history', () => {
+    const history = transformOpenElectricityHistory(
+        payload([
+            series('power', [
+                result('NSW1', 'NSW coal', 'coal', [
+                    point('2026-09-03T01:00:00', 100),
+                    point('2026-09-03T01:05:00', 80),
+                ]),
+                result('QLD1', 'QLD wind', 'wind', [
+                    point('2026-09-03T01:00:00', 40),
+                    point('2026-09-03T01:05:00', 60),
+                ]),
+            ]),
+        ]),
+        payload([
+            series('demand', [
+                regionResult('NSW1', [
+                    point('2026-09-03T01:00:00', 100),
+                    point('2026-09-03T01:05:00', 80),
+                ]),
+                regionResult('QLD1', [
+                    point('2026-09-03T01:00:00', 40),
+                    point('2026-09-03T01:05:00', 60),
+                ]),
+            ]),
+        ]),
+        payload([
+            series('energy', [
+                regionResult('NSW1', [point('2026-09-03T01:00:00', 10), point('2026-09-03T01:05:00', 10)]),
+                regionResult('QLD1', [point('2026-09-03T01:00:00', 10), point('2026-09-03T01:05:00', 10)]),
+            ]),
+            series('emissions', [
+                regionResult('NSW1', [point('2026-09-03T01:00:00', 5), point('2026-09-03T01:05:00', 4)]),
+                regionResult('QLD1', [point('2026-09-03T01:00:00', 1), point('2026-09-03T01:05:00', 1)]),
+            ]),
+        ])
+    );
+
+    assert.equal(history.country, 'Australia');
+    assert.equal(history.history.length, 2);
+    assert.equal(history.regionHistory.length, 4);
+    assert.equal(history.cleanestWindow.timestamp, '2026-09-03T01:05:00');
+    assert.equal(Math.round(history.history[1].carbonIntensity_gCO2kWh), 271);
+});
+
+test('transforms EM6 carbon items into New Zealand history', () => {
+    const history = transformNewZealandHistory(
+        {
+            items: [
+                { timestamp: new Date().toISOString(), nz_carbon_gkwh: '50' },
+                { timestamp: new Date(Date.now() - 30 * 60 * 1000).toISOString(), nz_carbon_gkwh: '40' },
+            ],
+        },
+        {
+            items: [
+                {
+                    generation_type: [
+                        {
+                            hyd_mwh: 480,
+                            gas_mwh: 48,
+                        },
+                    ],
+                },
+            ],
+        },
+        24
+    );
+
+    assert.equal(history.country, 'New Zealand');
+    assert.equal(history.history.length, 2);
+    assert.equal(history.cleanestWindow.carbonIntensity_gCO2kWh, 40);
+    assert.equal(history.history[0].renewablePercentage, 91);
+});
+
 test('maps OpenElectricity auth and rate-limit errors safely', () => {
     assert.equal(mapOpenElectricityError({ response: { status: 401 } }).status, 502);
     assert.equal(mapOpenElectricityError({ response: { status: 403 } }).status, 502);
@@ -282,20 +367,68 @@ test('new zealand endpoint returns transformed EM6 records', async () => {
     assert.deepEqual(response.body.generationMix, { hydro: 10 });
 });
 
-function request(app, path) {
+test('planner endpoint estimates run-now emissions against cleanest recent window', async () => {
+    const previousKey = process.env.OPENELECTRICITY_API_KEY;
+    process.env.OPENELECTRICITY_API_KEY = 'test-key';
+
+    const responses = [
+        { data: payload([series('power', [result('NSW1', 'NSW gas', 'gas', [point('2026-09-03T01:05:00', 100)])])]) },
+        { data: payload([series('demand', [regionResult('NSW1', [point('2026-09-03T01:05:00', 100)])])]) },
+        {
+            data: payload([
+                series('energy', [regionResult('NSW1', [point('2026-09-03T01:05:00', 10)])]),
+                series('emissions', [regionResult('NSW1', [point('2026-09-03T01:05:00', 5)])]),
+            ]),
+        },
+        { data: payload([series('power', [result('NSW1', 'NSW wind', 'wind', [point('2026-09-03T00:05:00', 100)])])]) },
+        { data: payload([series('demand', [regionResult('NSW1', [point('2026-09-03T00:05:00', 100)])])]) },
+        {
+            data: payload([
+                series('energy', [regionResult('NSW1', [point('2026-09-03T00:05:00', 10)])]),
+                series('emissions', [regionResult('NSW1', [point('2026-09-03T00:05:00', 1)])]),
+            ]),
+        },
+    ];
+
+    const app = createApp({
+        httpClient: {
+            get: async () => responses.shift(),
+        },
+    });
+
+    const response = await request(app, '/api/planner/estimate', {
+        method: 'POST',
+        body: {
+            country: 'Australia',
+            region: 'NSW',
+            kWh: 10,
+            durationHours: 2,
+        },
+    });
+
+    restoreApiKey(previousKey);
+
+    assert.equal(response.status, 200);
+    assert.equal(response.body.now.estimatedKgCO2e, 5);
+    assert.equal(response.body.cleanerWindow.estimatedKgCO2e, 1);
+    assert.equal(response.body.savingsKgCO2e, 4);
+});
+
+function request(app, path, requestConfig = {}) {
     return new Promise((resolve, reject) => {
         const server = http.createServer(app);
 
         server.listen(0, () => {
             const address = server.address();
-            const options = {
+            const httpOptions = {
                 hostname: '127.0.0.1',
                 port: address.port,
                 path,
-                method: 'GET',
+                method: requestConfig.method || 'GET',
+                headers: requestConfig.body ? { 'Content-Type': 'application/json' } : undefined,
             };
 
-            const req = http.request(options, (res) => {
+            const req = http.request(httpOptions, (res) => {
                 let body = '';
 
                 res.on('data', (chunk) => {
@@ -315,6 +448,10 @@ function request(app, path) {
                 server.close();
                 reject(error);
             });
+
+            if (requestConfig.body) {
+                req.write(JSON.stringify(requestConfig.body));
+            }
 
             req.end();
         });

@@ -26,6 +26,7 @@ function createApp(options = {}) {
     const httpClient = options.httpClient || axios;
 
     app.use(cors());
+    app.use(express.json());
 
     app.get('/api/emissions/australia', async (req, res) => {
         try {
@@ -56,6 +57,28 @@ function createApp(options = {}) {
         }
     });
 
+    app.get('/api/emissions/australia/history', async (req, res) => {
+        try {
+            if (!process.env.OPENELECTRICITY_API_KEY) {
+                return res.status(500).json({
+                    error: 'OpenElectricity API key is not configured on the backend.',
+                });
+            }
+
+            const hours = getHoursQuery(req.query.hours);
+            const data = await fetchAustraliaHistory(httpClient, hours);
+
+            return res.json(data);
+        } catch (error) {
+            const mappedError = mapOpenElectricityError(error);
+            console.error('Error fetching OpenElectricity Australia history:', mappedError.logMessage);
+
+            return res.status(mappedError.status).json({
+                error: mappedError.message,
+            });
+        }
+    });
+
     app.get('/api/emissions/new-zealand', async (req, res) => {
         try {
             if (newZealandCache && Date.now() - newZealandCache.cachedAt < CACHE_TTL_MS) {
@@ -78,6 +101,35 @@ function createApp(options = {}) {
         }
     });
 
+    app.get('/api/emissions/new-zealand/history', async (req, res) => {
+        try {
+            const hours = getHoursQuery(req.query.hours);
+            const data = await fetchNewZealandHistory(httpClient, hours);
+
+            return res.json(data);
+        } catch (error) {
+            console.error('Error fetching EM6 New Zealand history:', error.message);
+
+            return res.status(502).json({
+                error: 'New Zealand emissions history is temporarily unavailable.',
+            });
+        }
+    });
+
+    app.post('/api/planner/estimate', async (req, res) => {
+        try {
+            const estimate = await estimateActivity(req.body || {}, httpClient);
+            return res.json(estimate);
+        } catch (error) {
+            const status = error.status || 500;
+            console.error('Error estimating activity emissions:', error.message);
+
+            return res.status(status).json({
+                error: error.message || 'Unable to estimate activity emissions.',
+            });
+        }
+    });
+
     app.get('/health', (req, res) => {
         res.json({
             status: 'ok',
@@ -87,6 +139,12 @@ function createApp(options = {}) {
     });
 
     return app;
+}
+
+function getHoursQuery(hours) {
+    const parsed = Number(hours || 24);
+    if (!Number.isFinite(parsed)) return 24;
+    return Math.min(Math.max(Math.round(parsed), 1), 48);
 }
 
 async function fetchAustraliaNEMData(httpClient = axios) {
@@ -116,6 +174,37 @@ async function fetchAustraliaNEMData(httpClient = axios) {
         generationResponse.data,
         demandResponse.data,
         emissionsResponse.data
+    ).map((state) => enrichEmissionRecord(state));
+}
+
+async function fetchAustraliaHistory(httpClient = axios, hours = 24) {
+    const dateStart = getDateStartForHours(hours);
+    const [generationResponse, demandResponse, emissionsResponse] = await Promise.all([
+        requestOpenElectricity(httpClient, '/data/network/NEM', {
+            metrics: ['power'],
+            interval: '5m',
+            date_start: dateStart,
+            primary_grouping: 'network_region',
+            secondary_grouping: 'fueltech_group',
+        }),
+        requestOpenElectricity(httpClient, '/market/network/NEM', {
+            metrics: ['demand'],
+            interval: '5m',
+            date_start: dateStart,
+            primary_grouping: 'network_region',
+        }),
+        requestOpenElectricity(httpClient, '/data/network/NEM', {
+            metrics: ['energy', 'emissions'],
+            interval: '5m',
+            date_start: dateStart,
+            primary_grouping: 'network_region',
+        }),
+    ]);
+
+    return transformOpenElectricityHistory(
+        generationResponse.data,
+        demandResponse.data,
+        emissionsResponse.data
     );
 }
 
@@ -125,7 +214,16 @@ async function fetchNewZealandData(httpClient = axios) {
         httpClient.get(NZ_GENERATION_API_URL, { timeout: 15000 }),
     ]);
 
-    return transformNewZealandData(carbonResponse.data, generationResponse.data);
+    return enrichEmissionRecord(transformNewZealandData(carbonResponse.data, generationResponse.data));
+}
+
+async function fetchNewZealandHistory(httpClient = axios, hours = 24) {
+    const [carbonResponse, generationResponse] = await Promise.all([
+        httpClient.get(NZ_CARBON_API_URL, { timeout: 15000 }),
+        httpClient.get(NZ_GENERATION_API_URL, { timeout: 15000 }),
+    ]);
+
+    return transformNewZealandHistory(carbonResponse.data, generationResponse.data, hours);
 }
 
 function transformNewZealandData(carbonData, generationData) {
@@ -164,6 +262,49 @@ function transformNewZealandData(carbonData, generationData) {
         carbonIntensity_gCO2kWh: parseFloat(latestCarbon.nz_carbon_gkwh) || 0,
         generationMix,
     };
+}
+
+function transformNewZealandHistory(carbonData, generationData, hours = 24) {
+    const latestGeneration = generationData.items?.[0];
+    const generationMix = latestGeneration ? getNewZealandGenerationMix(latestGeneration) : {};
+    const totalDemandMW = Object.values(generationMix).reduce((sum, value) => sum + value, 0);
+    const cutoff = Date.now() - hours * 60 * 60 * 1000;
+
+    const history = (carbonData.items || [])
+        .map((item) =>
+            createHistoryPoint({
+                country: 'New Zealand',
+                timestamp: item.timestamp,
+                totalDemandMW,
+                carbonIntensity_gCO2kWh: parseFloat(item.nz_carbon_gkwh) || 0,
+                generationMix,
+            })
+        )
+        .filter((point) => new Date(point.timestamp).getTime() >= cutoff)
+        .sort((left, right) => new Date(left.timestamp) - new Date(right.timestamp));
+
+    return createHistoryResponse('New Zealand', history);
+}
+
+function getNewZealandGenerationMix(latestGeneration) {
+    const generationMix = {};
+
+    latestGeneration.generation_type.forEach((gen) => {
+        addGenerationValue(generationMix, 'hydro', gen.hyd_mwh);
+        addGenerationValue(generationMix, 'wind', gen.win_mwh);
+        addGenerationValue(generationMix, 'solar', gen.sol_mwh);
+        addGenerationValue(generationMix, 'gas', gen.gas_mwh);
+        addGenerationValue(generationMix, 'gas', gen.cg_mwh);
+        addGenerationValue(generationMix, 'gas', gen.cog_mwh);
+        addGenerationValue(generationMix, 'geothermal', gen.geo_mwh);
+        addGenerationValue(generationMix, 'other', gen.bat_mwh);
+
+        if (gen.liq_mwh !== undefined && gen.liq_mwh > 0) {
+            addGenerationValue(generationMix, 'other', gen.liq_mwh);
+        }
+    });
+
+    return generationMix;
 }
 
 function addGenerationValue(generationMix, fuel, mwh) {
@@ -208,6 +349,10 @@ function buildQueryString(params) {
 
 function getNemDateStart(now = new Date()) {
     const twoHoursAgo = new Date(now.getTime() - 2 * 60 * 60 * 1000);
+    return formatBrisbaneTimestamp(twoHoursAgo);
+}
+
+function formatBrisbaneTimestamp(date) {
     const parts = new Intl.DateTimeFormat('en-AU', {
         timeZone: 'Australia/Brisbane',
         year: 'numeric',
@@ -217,7 +362,7 @@ function getNemDateStart(now = new Date()) {
         minute: '2-digit',
         second: '2-digit',
         hour12: false,
-    }).formatToParts(twoHoursAgo);
+    }).formatToParts(date);
 
     const getPart = (type) => parts.find((part) => part.type === type)?.value;
     return `${getPart('year')}-${getPart('month')}-${getPart('day')}T${getPart('hour')}:${getPart('minute')}:${getPart('second')}`;
@@ -292,6 +437,369 @@ function transformOpenElectricityData(generationPayload, demandPayload, emission
     });
 
     return Object.values(states);
+}
+
+function transformOpenElectricityHistory(generationPayload, demandPayload, emissionsPayload) {
+    const byRegionAndTimestamp = createRegionHistoryRecords();
+
+    readTimeSeries(generationPayload).forEach((series) => {
+        series.results.forEach((result) => {
+            const region = result.columns.network_region || result.columns.region;
+            if (!byRegionAndTimestamp[region]) return;
+
+            const fuel = mapFuelGroup(result.columns.fueltech_group || result.name);
+            result.data.forEach((point) => {
+                const record = getRegionHistoryPoint(byRegionAndTimestamp, region, point.timestamp);
+                record.generationMix[fuel] = (record.generationMix[fuel] || 0) + point.value;
+            });
+        });
+    });
+
+    readTimeSeries(demandPayload).forEach((series) => {
+        series.results.forEach((result) => {
+            const region = result.columns.network_region || result.columns.region;
+            if (!byRegionAndTimestamp[region]) return;
+
+            result.data.forEach((point) => {
+                const record = getRegionHistoryPoint(byRegionAndTimestamp, region, point.timestamp);
+                record.totalDemandMW = point.value;
+            });
+        });
+    });
+
+    const energyByRegionAndTimestamp = {};
+    const emissionsByRegionAndTimestamp = {};
+
+    readTimeSeries(emissionsPayload).forEach((series) => {
+        series.results.forEach((result) => {
+            const region = result.columns.network_region || result.columns.region;
+            if (!byRegionAndTimestamp[region]) return;
+
+            result.data.forEach((point) => {
+                const key = `${region}|${point.timestamp}`;
+                getRegionHistoryPoint(byRegionAndTimestamp, region, point.timestamp);
+
+                if (series.metric === 'energy') {
+                    energyByRegionAndTimestamp[key] = point.value;
+                }
+
+                if (series.metric === 'emissions') {
+                    emissionsByRegionAndTimestamp[key] = point.value;
+                }
+            });
+        });
+    });
+
+    const regionHistory = Object.entries(byRegionAndTimestamp).flatMap(([region, records]) =>
+        Object.values(records)
+            .map((record) => {
+                const key = `${region}|${record.timestamp}`;
+                const energyMWh = energyByRegionAndTimestamp[key];
+                const emissionsTCO2 = emissionsByRegionAndTimestamp[key];
+                const carbonIntensity = energyMWh ? (emissionsTCO2 || 0) / energyMWh * 1000 : 0;
+
+                return createHistoryPoint({
+                    ...record,
+                    carbonIntensity_gCO2kWh: carbonIntensity,
+                });
+            })
+            .sort((left, right) => new Date(left.timestamp) - new Date(right.timestamp))
+    );
+
+    const history = aggregateRegionHistory(regionHistory);
+
+    return {
+        ...createHistoryResponse('Australia', history),
+        regionHistory,
+    };
+}
+
+function createRegionHistoryRecords() {
+    return Object.keys(NEM_REGIONS).reduce((records, region) => {
+        records[region] = {};
+        return records;
+    }, {});
+}
+
+function getRegionHistoryPoint(byRegionAndTimestamp, region, timestamp) {
+    if (!byRegionAndTimestamp[region][timestamp]) {
+        byRegionAndTimestamp[region][timestamp] = {
+            country: 'Australia',
+            state: NEM_REGIONS[region],
+            timestamp,
+            totalDemandMW: 0,
+            carbonIntensity_gCO2kWh: 0,
+            generationMix: {},
+        };
+    }
+
+    return byRegionAndTimestamp[region][timestamp];
+}
+
+function aggregateRegionHistory(regionHistory) {
+    const byTimestamp = {};
+
+    regionHistory.forEach((point) => {
+        if (!byTimestamp[point.timestamp]) {
+            byTimestamp[point.timestamp] = {
+                country: 'Australia',
+                timestamp: point.timestamp,
+                totalDemandMW: 0,
+                carbonIntensityNumerator: 0,
+                generationMix: {},
+            };
+        }
+
+        const aggregate = byTimestamp[point.timestamp];
+        aggregate.totalDemandMW += point.totalDemandMW;
+        aggregate.carbonIntensityNumerator += point.carbonIntensity_gCO2kWh * point.totalDemandMW;
+
+        Object.entries(point.generationMix).forEach(([fuel, value]) => {
+            aggregate.generationMix[fuel] = (aggregate.generationMix[fuel] || 0) + value;
+        });
+    });
+
+    return Object.values(byTimestamp)
+        .map((point) =>
+            createHistoryPoint({
+                country: point.country,
+                timestamp: point.timestamp,
+                totalDemandMW: point.totalDemandMW,
+                carbonIntensity_gCO2kWh: point.totalDemandMW
+                    ? point.carbonIntensityNumerator / point.totalDemandMW
+                    : 0,
+                generationMix: point.generationMix,
+            })
+        )
+        .sort((left, right) => new Date(left.timestamp) - new Date(right.timestamp));
+}
+
+function createHistoryPoint(record) {
+    return enrichEmissionRecord({
+        country: record.country,
+        state: record.state,
+        timestamp: record.timestamp,
+        totalDemandMW: record.totalDemandMW,
+        carbonIntensity_gCO2kWh: record.carbonIntensity_gCO2kWh,
+        generationMix: record.generationMix,
+    });
+}
+
+function createHistoryResponse(country, history) {
+    const cleanestWindow = getCleanestWindow(history);
+
+    return {
+        country,
+        history,
+        cleanestWindow,
+    };
+}
+
+async function estimateActivity(input, httpClient = axios) {
+    const country = String(input.country || '').toLowerCase();
+    const region = input.region ? String(input.region).toUpperCase() : null;
+    const kWh = Number(input.kWh);
+    const durationHours = Number(input.durationHours || 1);
+
+    if (!['australia', 'new zealand'].includes(country)) {
+        throw createHttpError(400, 'country must be Australia or New Zealand.');
+    }
+
+    if (!Number.isFinite(kWh) || kWh <= 0) {
+        throw createHttpError(400, 'kWh must be greater than 0.');
+    }
+
+    if (!Number.isFinite(durationHours) || durationHours <= 0) {
+        throw createHttpError(400, 'durationHours must be greater than 0.');
+    }
+
+    if (country === 'australia') {
+        const [current, historyResponse] = await Promise.all([
+            fetchAustraliaNEMData(httpClient),
+            fetchAustraliaHistory(httpClient, 24),
+        ]);
+        const currentRecord = region ? current.find((state) => state.state === region) : aggregateRecords('Australia', current);
+        const history = region
+            ? historyResponse.regionHistory.filter((point) => point.state === region)
+            : historyResponse.history;
+
+        return createPlannerEstimate('Australia', region, kWh, durationHours, currentRecord, history);
+    }
+
+    const [currentRecord, historyResponse] = await Promise.all([
+        fetchNewZealandData(httpClient),
+        fetchNewZealandHistory(httpClient, 24),
+    ]);
+
+    return createPlannerEstimate('New Zealand', null, kWh, durationHours, currentRecord, historyResponse.history);
+}
+
+function createPlannerEstimate(country, region, kWh, durationHours, currentRecord, history) {
+    if (!currentRecord) {
+        throw createHttpError(404, 'No current grid data found for that selection.');
+    }
+
+    const cleanestWindow = getCleanestWindow(history) || createHistoryPoint(currentRecord);
+    const nowKgCO2e = kWh * currentRecord.carbonIntensity_gCO2kWh / 1000;
+    const cleanerWindowKgCO2e = kWh * cleanestWindow.carbonIntensity_gCO2kWh / 1000;
+    const savingsKgCO2e = Math.max(0, nowKgCO2e - cleanerWindowKgCO2e);
+    const recommendation = createPlannerRecommendation(currentRecord, cleanestWindow, savingsKgCO2e);
+
+    return {
+        country,
+        region,
+        kWh,
+        durationHours,
+        now: {
+            timestamp: currentRecord.timestamp,
+            carbonIntensity_gCO2kWh: currentRecord.carbonIntensity_gCO2kWh,
+            estimatedKgCO2e: nowKgCO2e,
+            gridSignal: currentRecord.gridSignal,
+        },
+        cleanerWindow: {
+            timestamp: cleanestWindow.timestamp,
+            carbonIntensity_gCO2kWh: cleanestWindow.carbonIntensity_gCO2kWh,
+            estimatedKgCO2e: cleanerWindowKgCO2e,
+        },
+        savingsKgCO2e,
+        recommendation,
+    };
+}
+
+function createPlannerRecommendation(currentRecord, cleanestWindow, savingsKgCO2e) {
+    if (currentRecord.gridSignal === 'Use now') {
+        return 'Run it now. The grid is currently clean enough for flexible electricity use.';
+    }
+
+    if (savingsKgCO2e >= 1) {
+        return `Delay if you can. The cleanest recent window would save about ${savingsKgCO2e.toFixed(1)} kg CO2e.`;
+    }
+
+    return `Waiting has limited emissions benefit based on recent data. Cleanest recent window: ${cleanestWindow.timestamp}.`;
+}
+
+function aggregateRecords(country, records) {
+    const totalDemandMW = records.reduce((sum, record) => sum + record.totalDemandMW, 0);
+    const generationMix = {};
+
+    records.forEach((record) => {
+        Object.entries(record.generationMix).forEach(([fuel, value]) => {
+            generationMix[fuel] = (generationMix[fuel] || 0) + value;
+        });
+    });
+
+    const carbonIntensity = totalDemandMW
+        ? records.reduce((sum, record) => sum + record.carbonIntensity_gCO2kWh * record.totalDemandMW, 0) / totalDemandMW
+        : 0;
+
+    return enrichEmissionRecord({
+        country,
+        timestamp: getLatestTimestamp(records.map((record) => record.timestamp)),
+        totalDemandMW,
+        carbonIntensity_gCO2kWh: carbonIntensity,
+        generationMix,
+    });
+}
+
+function enrichEmissionRecord(record) {
+    const renewablePercentage = calculateRenewablePercentage(record.generationMix);
+    const dataFreshnessMinutes = calculateDataFreshnessMinutes(record.timestamp);
+    const confidence = getConfidence(record, dataFreshnessMinutes);
+    const signal = classifyGridSignal(record.carbonIntensity_gCO2kWh, renewablePercentage);
+    const leadingFuel = getLeadingFuel(record.generationMix);
+
+    return {
+        ...record,
+        renewablePercentage,
+        dataFreshnessMinutes,
+        gridSignal: signal,
+        signalReason: createSignalReason(signal, record.carbonIntensity_gCO2kWh, renewablePercentage, leadingFuel),
+        confidence,
+    };
+}
+
+function calculateRenewablePercentage(generationMix) {
+    const renewables = ['hydro', 'wind', 'solar', 'geothermal'];
+    const renewableTotal = renewables.reduce((sum, fuel) => sum + (generationMix[fuel] || 0), 0);
+    const total = Object.values(generationMix).reduce((sum, value) => sum + (value || 0), 0);
+
+    return total > 0 ? Math.round(renewableTotal / total * 100) : 0;
+}
+
+function calculateDataFreshnessMinutes(timestamp) {
+    const ageMs = Date.now() - new Date(timestamp).getTime();
+    if (!Number.isFinite(ageMs)) return null;
+
+    return Math.max(0, Math.round(ageMs / 60000));
+}
+
+function getConfidence(record, dataFreshnessMinutes) {
+    if (!record.totalDemandMW || Object.keys(record.generationMix || {}).length === 0) {
+        return 'Low';
+    }
+
+    if (dataFreshnessMinutes === null || dataFreshnessMinutes > 120) {
+        return 'Low';
+    }
+
+    if (dataFreshnessMinutes > 45) {
+        return 'Medium';
+    }
+
+    return 'High';
+}
+
+function classifyGridSignal(carbonIntensity, renewablePercentage) {
+    if (carbonIntensity <= 150 || renewablePercentage >= 80) {
+        return 'Use now';
+    }
+
+    if (carbonIntensity >= 550 || renewablePercentage < 35) {
+        return 'Avoid peak';
+    }
+
+    return 'Wait';
+}
+
+function createSignalReason(signal, carbonIntensity, renewablePercentage, leadingFuel) {
+    const roundedIntensity = Math.round(carbonIntensity);
+    const fuelText = leadingFuel ? `${leadingFuel} is the largest visible source` : 'generation mix is incomplete';
+
+    if (signal === 'Use now') {
+        return `Low-carbon window: ${roundedIntensity} gCO2/kWh and ${renewablePercentage}% renewable. ${fuelText}.`;
+    }
+
+    if (signal === 'Avoid peak') {
+        return `High-impact period: ${roundedIntensity} gCO2/kWh and ${renewablePercentage}% renewable. ${fuelText}.`;
+    }
+
+    return `Mixed signal: ${roundedIntensity} gCO2/kWh and ${renewablePercentage}% renewable. ${fuelText}.`;
+}
+
+function getLeadingFuel(generationMix) {
+    return Object.entries(generationMix || {})
+        .filter(([, value]) => value > 0)
+        .sort((left, right) => right[1] - left[1])[0]?.[0] || null;
+}
+
+function getCleanestWindow(history) {
+    return [...history]
+        .filter((point) => Number.isFinite(point.carbonIntensity_gCO2kWh))
+        .sort((left, right) => left.carbonIntensity_gCO2kWh - right.carbonIntensity_gCO2kWh)[0] || null;
+}
+
+function getLatestTimestamp(timestamps) {
+    return timestamps.reduce((latest, timestamp) => latestTimestamp(latest, timestamp), null) || new Date().toISOString();
+}
+
+function getDateStartForHours(hours, now = new Date()) {
+    return formatBrisbaneTimestamp(new Date(now.getTime() - hours * 60 * 60 * 1000));
+}
+
+function createHttpError(status, message) {
+    const error = new Error(message);
+    error.status = status;
+    return error;
 }
 
 function createEmptyStateRecords() {
@@ -410,7 +918,13 @@ if (require.main === module) {
 module.exports = app;
 module.exports.createApp = createApp;
 module.exports.transformOpenElectricityData = transformOpenElectricityData;
+module.exports.transformOpenElectricityHistory = transformOpenElectricityHistory;
 module.exports.transformNewZealandData = transformNewZealandData;
+module.exports.transformNewZealandHistory = transformNewZealandHistory;
+module.exports.estimateActivity = estimateActivity;
+module.exports.enrichEmissionRecord = enrichEmissionRecord;
+module.exports.calculateRenewablePercentage = calculateRenewablePercentage;
+module.exports.classifyGridSignal = classifyGridSignal;
 module.exports.mapFuelGroup = mapFuelGroup;
 module.exports.mapOpenElectricityError = mapOpenElectricityError;
 module.exports.buildQueryString = buildQueryString;

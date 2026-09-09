@@ -1,15 +1,23 @@
 # Live Emissions & Generation Mix Dashboard
 
-A deployed real-time dashboard for comparing electricity carbon intensity and generation mix between New Zealand and Australia.
+A deployed grid timing decision tool for comparing electricity carbon intensity and generation mix between New Zealand and Australia.
 
 ## Overview
 
-The dashboard gives a quick side-by-side view of how clean each electricity grid is at the latest available interval. It shows:
+The dashboard answers a practical question: **is now a clean time to use electricity?**
+
+It combines live grid data, recent trends, and simple activity estimates so users can decide whether to run flexible electricity loads now or wait for a cleaner window.
+
+It shows:
 
 - Current carbon intensity in `gCO2/kWh`
 - Generation mix by fuel type
 - Total demand in MW
 - Renewable generation percentage
+- `Use now`, `Wait`, or `Avoid peak` grid signals
+- Estimated emissions for common activities such as EV charging, laundry, dishwashers, and heat pumps
+- Recent cleanest windows for shifting flexible demand
+- Australian NEM regional comparison
 - Automatic refresh every 5 minutes
 - Manual refresh for on-demand updates
 
@@ -29,6 +37,9 @@ New Zealand data comes from EM6. Australian data comes from OpenElectricity for 
 - **API endpoints**:
   - `GET /api/emissions/australia` - Returns OpenElectricity NEM data for 5 Australian regions
   - `GET /api/emissions/new-zealand` - Returns EM6 data for New Zealand
+  - `GET /api/emissions/australia/history?hours=24` - Returns recent Australian NEM history
+  - `GET /api/emissions/new-zealand/history?hours=24` - Returns recent New Zealand history
+  - `POST /api/planner/estimate` - Estimates emissions for a selected activity
   - `GET /health` - Health check endpoint
 - **External sources**:
   - EM6 current carbon intensity and generation data for New Zealand
@@ -74,13 +85,13 @@ The frontend will start on `http://localhost:3000` and open automatically in you
 
 ## Features
 
-- Display current carbon intensity for New Zealand and Australia
+- Classify each grid as `Use now`, `Wait`, or `Avoid peak`
+- Estimate activity emissions now versus the cleanest recent window
+- Compare recent carbon, renewable, and demand trends
+- Identify the cleanest Australian NEM region
 - Visualize generation mix through pie charts
-- Compare both countries side by side
-- Refresh data manually
-- Refresh data automatically every 5 minutes
-- Color-code carbon intensity levels
-- Show renewable percentage and total demand
+- Show renewable percentage, total demand, and data freshness
+- Refresh data manually and automatically every 5 minutes
 
 ## Design Details
 
@@ -151,6 +162,8 @@ The frontend will start on `http://localhost:3000` and open automatically in you
 Australian and New Zealand data are both served through the backend. This keeps the OpenElectricity API key out of the browser and avoids browser-side connectivity or CORS issues with external data sources.
 
 The backend caches country data briefly to reduce repeated upstream API usage during dashboard refreshes.
+
+The planner uses recent historical data rather than forecasts. Its recommendation is intended as a practical grid-timing signal, not a guarantee about future grid conditions.
 
 ### Tech Decisions
 - **React + TypeScript**: Type safety and component reusability

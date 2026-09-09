@@ -14,8 +14,11 @@ function getBackendUrl(): string {
     return withProtocol.replace(/\/+$/, '');
 }
 
+export type GridSignal = 'Use now' | 'Wait' | 'Avoid peak';
+export type Confidence = 'High' | 'Medium' | 'Low';
+
 /**
- * Represents a mapping of generation types to their MWh values.
+ * Represents a mapping of generation types to their MW values.
  */
 export interface GenerationMix {
     hydro?: number;
@@ -38,63 +41,91 @@ export interface EmissionsData {
     totalDemandMW: number;
     carbonIntensity_gCO2kWh: number;
     generationMix: GenerationMix;
+    renewablePercentage?: number;
+    dataFreshnessMinutes?: number | null;
+    gridSignal?: GridSignal;
+    signalReason?: string;
+    confidence?: Confidence;
 }
 
-/**
- * Fetches emissions data for Australian states from the backend server.
- * 
- * @returns {Promise<EmissionsData[]>} A list of emissions data for each state.
- */
+export interface HistoryResponse {
+    country: string;
+    history: EmissionsData[];
+    cleanestWindow: EmissionsData | null;
+    regionHistory?: EmissionsData[];
+}
+
+export interface PlannerInput {
+    country: 'Australia' | 'New Zealand';
+    region?: string;
+    kWh: number;
+    durationHours: number;
+}
+
+export interface PlannerEstimate {
+    country: string;
+    region: string | null;
+    kWh: number;
+    durationHours: number;
+    now: {
+        timestamp: string;
+        carbonIntensity_gCO2kWh: number;
+        estimatedKgCO2e: number;
+        gridSignal: GridSignal;
+    };
+    cleanerWindow: {
+        timestamp: string;
+        carbonIntensity_gCO2kWh: number;
+        estimatedKgCO2e: number;
+    };
+    savingsKgCO2e: number;
+    recommendation: string;
+}
+
 export async function fetchAustraliaData(): Promise<EmissionsData[]> {
-    try {
-        const response = await fetch(`${BACKEND_URL}/api/emissions/australia`);
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const data = await response.json();
-        return data.map((state: any) => ({
-            country: 'Australia',
-            state: state.state,
-            timestamp: state.timestamp,
-            totalDemandMW: state.totalDemandMW,
-            carbonIntensity_gCO2kWh: state.carbonIntensity_gCO2kWh,
-            generationMix: state.generationMix,
-        }));
-    } catch (error) {
-        console.error('Error fetching Australia data:', error);
-        throw error;
-    }
+    const data = await requestJson<EmissionsData[]>('/api/emissions/australia');
+
+    return data.map((state) => ({
+        ...state,
+        country: state.country || 'Australia',
+    }));
 }
 
-/**
- * Fetches live emissions and generation mix data for New Zealand through the backend server.
- * 
- * @returns {Promise<EmissionsData>} Current emissions data for New Zealand.
- */
 export async function fetchNewZealandData(): Promise<EmissionsData> {
-    try {
-        const response = await fetch(`${BACKEND_URL}/api/emissions/new-zealand`);
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        return response.json();
-    } catch (error) {
-        console.error('Error fetching New Zealand data:', error);
-        throw error;
-    }
+    return requestJson<EmissionsData>('/api/emissions/new-zealand');
 }
 
-/**
- * Aggregates state-level emissions data into a single national-level summary.
- *
- * @param {EmissionsData[]} states - Array of emissions data for each state.
- * @returns {EmissionsData} Aggregated national data for Australia.
- */
+export async function fetchAustraliaHistory(hours = 24): Promise<HistoryResponse> {
+    return requestJson<HistoryResponse>(`/api/emissions/australia/history?hours=${hours}`);
+}
+
+export async function fetchNewZealandHistory(hours = 24): Promise<HistoryResponse> {
+    return requestJson<HistoryResponse>(`/api/emissions/new-zealand/history?hours=${hours}`);
+}
+
+export async function estimateActivity(input: PlannerInput): Promise<PlannerEstimate> {
+    return requestJson<PlannerEstimate>('/api/planner/estimate', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(input),
+    });
+}
+
+async function requestJson<T>(path: string, options?: RequestInit): Promise<T> {
+    const response = await fetch(`${BACKEND_URL}${path}`, options);
+
+    if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    return response.json();
+}
+
 export function aggregateAustraliaData(states: EmissionsData[]): EmissionsData {
     const totalDemand = states.reduce((sum, state) => sum + state.totalDemandMW, 0);
-    
-    const weightedIntensity = totalDemand > 0 ? states.reduce((sum, state) => 
+    const weightedIntensity = totalDemand > 0 ? states.reduce((sum, state) =>
         sum + (state.carbonIntensity_gCO2kWh * state.totalDemandMW), 0
     ) / totalDemand : 0;
 
@@ -107,11 +138,64 @@ export function aggregateAustraliaData(states: EmissionsData[]): EmissionsData {
         });
     });
 
+    const renewablePercentage = calculateRenewablePercentage(aggregatedMix);
+    const leadingFuel = getLeadingFuel(aggregatedMix);
+    const gridSignal = classifyGridSignal(weightedIntensity, renewablePercentage);
+
     return {
         country: 'Australia',
-        timestamp: states[0]?.timestamp || new Date().toISOString(),
+        timestamp: getLatestTimestamp(states.map((state) => state.timestamp)),
         totalDemandMW: totalDemand,
         carbonIntensity_gCO2kWh: weightedIntensity,
         generationMix: aggregatedMix,
+        renewablePercentage,
+        dataFreshnessMinutes: states.reduce((freshest, state) => {
+            if (state.dataFreshnessMinutes === undefined || state.dataFreshnessMinutes === null) return freshest;
+            return freshest === null ? state.dataFreshnessMinutes : Math.min(freshest, state.dataFreshnessMinutes);
+        }, null as number | null),
+        gridSignal,
+        signalReason: createSignalReason(gridSignal, weightedIntensity, renewablePercentage, leadingFuel),
+        confidence: states.some((state) => state.confidence === 'Low') ? 'Medium' : 'High',
     };
+}
+
+export function calculateRenewablePercentage(mix: GenerationMix): number {
+    const renewables = ['hydro', 'wind', 'solar', 'geothermal'];
+    const renewableTotal = renewables.reduce((sum, fuel) => sum + (mix[fuel] || 0), 0);
+    const total = Object.values(mix).reduce((sum: number, val) => sum + (val || 0), 0);
+
+    return total > 0 ? Math.round((renewableTotal / total) * 100) : 0;
+}
+
+function classifyGridSignal(carbonIntensity: number, renewablePercentage: number): GridSignal {
+    if (carbonIntensity <= 150 || renewablePercentage >= 80) return 'Use now';
+    if (carbonIntensity >= 550 || renewablePercentage < 35) return 'Avoid peak';
+    return 'Wait';
+}
+
+function createSignalReason(signal: GridSignal, carbonIntensity: number, renewablePercentage: number, leadingFuel: string | null): string {
+    const fuelText = leadingFuel ? `${leadingFuel} is the largest visible source` : 'generation mix is incomplete';
+
+    if (signal === 'Use now') {
+        return `Low-carbon window: ${Math.round(carbonIntensity)} gCO2/kWh and ${renewablePercentage}% renewable. ${fuelText}.`;
+    }
+
+    if (signal === 'Avoid peak') {
+        return `High-impact period: ${Math.round(carbonIntensity)} gCO2/kWh and ${renewablePercentage}% renewable. ${fuelText}.`;
+    }
+
+    return `Mixed signal: ${Math.round(carbonIntensity)} gCO2/kWh and ${renewablePercentage}% renewable. ${fuelText}.`;
+}
+
+function getLeadingFuel(mix: GenerationMix): string | null {
+    return Object.entries(mix)
+        .filter(([, value]) => (value || 0) > 0)
+        .sort((left, right) => (right[1] || 0) - (left[1] || 0))[0]?.[0] || null;
+}
+
+function getLatestTimestamp(timestamps: string[]): string {
+    return timestamps.reduce((latest, timestamp) =>
+        new Date(timestamp) > new Date(latest) ? timestamp : latest,
+        timestamps[0] || new Date().toISOString()
+    );
 }

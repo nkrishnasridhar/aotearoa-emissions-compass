@@ -21,7 +21,7 @@ It shows:
 - Automatic refresh every 5 minutes
 - Manual refresh for on-demand updates
 
-New Zealand data uses a free-first provider approach: EM6 free feeds provide current carbon intensity and generation context, and an optional registered Electricity Authority API key can add recent real-time dispatch demand/generation history. Australian data comes from OpenElectricity for the National Electricity Market regions `QLD1`, `NSW1`, `VIC1`, `SA1`, and `TAS1`, then the frontend aggregates those regions into a country-level Australia card.
+New Zealand data uses a free-first provider approach: EM6 free feeds provide current carbon intensity and generation context, and an optional registered Electricity Authority API key can add the latest real-time dispatch demand/generation snapshot. Australian data comes from OpenElectricity for the National Electricity Market regions `QLD1`, `NSW1`, `VIC1`, `SA1`, and `TAS1`, then the frontend aggregates those regions into a country-level Australia card.
 
 ## Architecture
 
@@ -43,7 +43,7 @@ New Zealand data uses a free-first provider approach: EM6 free feeds provide cur
   - `GET /health` - Health check endpoint
 - **External sources**:
   - EM6 free current carbon intensity and generation data for New Zealand
-  - Optional Electricity Authority real-time dispatch demand/generation data for New Zealand
+  - Optional Electricity Authority latest real-time dispatch demand/generation snapshot for New Zealand
   - OpenElectricity generation, demand, energy, and emissions data for Australia
 
 ## Running Locally
@@ -125,9 +125,9 @@ The frontend will start on `http://localhost:3000` and open automatically in you
 1. Backend fetches from two EM6 APIs simultaneously:
    - Carbon intensity API for emissions data
    - Generation price API for fuel mix data
-2. If `NZ_REALTIME_PROVIDER=ea` and `EA_API_KEY` are configured, backend also fetches Electricity Authority real-time dispatch rows
-3. Backend aggregates EA dispatch rows by five-minute interval for recent demand and generation totals
-4. Backend keeps EM6 as the carbon-intensity source and marks NZ history as limited or partial depending on whether EA dispatch data is active
+2. If `NZ_REALTIME_PROVIDER=ea` and `EA_API_KEY` are configured, backend also fetches the latest Electricity Authority real-time dispatch rows
+3. Backend aggregates the latest EA dispatch rows by five-minute interval for live demand and generation totals
+4. Backend keeps EM6 as the carbon-intensity source and marks NZ carbon history as limited because the EA real-time dispatch endpoint does not provide a 24-hour carbon history
 5. Backend adds NZ-specific source metadata, leading renewable fuel, leading thermal fuel, and thermal share
 6. Frontend fetches from backend API endpoint and displays data coverage clearly
 
@@ -165,7 +165,7 @@ The frontend will start on `http://localhost:3000` and open automatically in you
 - **Generation Mix**: Returns daily generation by fuel type (MWh)
 
 ### Optional NZ Provider Hooks
-- **Electricity Authority**: Optional registered/free provider configuration adds recent real-time dispatch demand and generation history
+- **Electricity Authority**: Optional registered/free provider configuration adds the latest real-time dispatch demand and generation snapshot
 - **Free-first fallback**: If optional NZ provider config is absent, the backend keeps using EM6 free feeds and marks history coverage as limited
 - **Carbon source**: EM6 remains the NZ carbon-intensity source even when EA dispatch data is active
 

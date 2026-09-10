@@ -109,6 +109,7 @@ const Dashboard: React.FC = () => {
     const insights = useMemo(() => buildInsights(nzData, auData, auRegionData, lastUpdated), [nzData, auData, auRegionData, lastUpdated]);
     const trendData = useMemo(() => buildTrendData(nzHistory, auHistory, trendMetric), [nzHistory, auHistory, trendMetric]);
     const cleanestAuRegion = useMemo(() => getCleanestRegion(auRegionData), [auRegionData]);
+    const nzHasEaDispatch = Boolean(nzHistory?.dataSources?.some((source) => source.includes("Electricity Authority")));
 
     const handleActivityChange = (activity: string) => {
         const selected = ACTIVITIES.find((item) => item.label === activity) || ACTIVITIES[0];
@@ -236,7 +237,9 @@ const Dashboard: React.FC = () => {
                     <CoverageBadge country="AU" coverage={auHistory?.historyCoverage || "full"} note={auHistory?.dataNotes || "Smoothed 30-minute OpenElectricity NEM history."} />
                 </div>
                 <p className="chart-note">
-                    {nzHistory?.historyCoverage === "limited"
+                    {nzHistory?.historyCoverage === "limited" && nzHasEaDispatch
+                        ? "New Zealand carbon history is limited to recent EM6 samples; Electricity Authority dispatch is used for the latest live NZ demand snapshot."
+                        : nzHistory?.historyCoverage === "limited"
                         ? "New Zealand free carbon history is limited to recent EM6 samples, while Australia is shown as a smoothed 30-minute NEM aggregate."
                         : nzHistory?.historyCoverage === "partial"
                             ? "New Zealand combines EM6 carbon samples with Electricity Authority dispatch demand; carbon history is still limited by the free EM6 feed."

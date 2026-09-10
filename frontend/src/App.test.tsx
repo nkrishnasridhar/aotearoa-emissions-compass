@@ -130,7 +130,7 @@ test('renders the grid timing decision dashboard', async () => {
   });
 });
 
-test('renders partial NZ history when Electricity Authority dispatch is active', async () => {
+test('renders limited NZ history with Electricity Authority latest dispatch active', async () => {
   const currentNz = {
     country: 'New Zealand',
     timestamp: '2026-09-03T09:00:00Z',
@@ -149,7 +149,7 @@ test('renders partial NZ history when Electricity Authority dispatch is active',
       'Electricity Authority real-time dispatch',
     ],
     historyCoverage: 'partial',
-    dataNotes: 'EM6 provides NZ carbon intensity while Electricity Authority real-time dispatch provides recent demand/generation history; carbon history is still limited by the free EM6 feed.',
+    dataNotes: 'EM6 provides NZ carbon intensity while Electricity Authority real-time dispatch provides the latest demand/generation snapshot; carbon history is still limited by the free EM6 feed.',
     leadingRenewableFuel: 'hydro',
     thermalSharePercentage: 3,
   };
@@ -170,9 +170,12 @@ test('renders partial NZ history when Electricity Authority dispatch is active',
     country: 'New Zealand',
     history: [currentNz],
     cleanestWindow: currentNz,
-    historyCoverage: 'partial',
+    historyCoverage: 'limited',
     dataSources: currentNz.dataSources,
     dataNotes: currentNz.dataNotes,
+    dispatchCoverage: 'latest-only',
+    dispatchIntervalCount: 1,
+    dispatchLatestTimestamp: '2026-09-03T09:05:00',
   };
 
   (fetchNewZealandData as jest.Mock).mockResolvedValue(currentNz);
@@ -204,9 +207,9 @@ test('renders partial NZ history when Electricity Authority dispatch is active',
 
   render(<App />);
 
-  expect(await screen.findByText(/NZ: Partial recent history/i)).toBeInTheDocument();
+  expect(await screen.findByText(/NZ: Limited recent carbon samples/i)).toBeInTheDocument();
   expect(screen.getByText(/EA dispatch demand is active/i)).toBeInTheDocument();
-  expect(screen.getByText(/Electricity Authority dispatch demand/i)).toBeInTheDocument();
+  expect(screen.getByText(/Electricity Authority dispatch is used for the latest live NZ demand snapshot/i)).toBeInTheDocument();
 
   fireEvent.change(screen.getByLabelText(/Grid/i), { target: { value: 'New Zealand' } });
   fireEvent.click(screen.getByRole('button', { name: /Estimate/i }));

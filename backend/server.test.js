@@ -209,22 +209,19 @@ test('transforms EM6 New Zealand responses into frontend country record', () => 
     });
 });
 
-test('builds Electricity Authority real-time dispatch URL with capped history window', () => {
+test('builds Electricity Authority real-time dispatch URL for latest snapshot endpoint', () => {
     const previousBaseUrl = process.env.EA_API_BASE_URL;
     const previousPath = process.env.EA_REALTIME_DISPATCH_PATH;
 
     process.env.EA_API_BASE_URL = 'https://ea.example.test/';
     process.env.EA_REALTIME_DISPATCH_PATH = 'real-time-dispatch/';
 
-    const url = buildElectricityAuthorityDispatchUrl(48, new Date('2026-09-03T12:00:00Z'));
+    const url = buildElectricityAuthorityDispatchUrl();
 
     restoreEnv('EA_API_BASE_URL', previousBaseUrl);
     restoreEnv('EA_REALTIME_DISPATCH_PATH', previousPath);
 
-    const decodedUrl = decodeURIComponent(url);
-    assert.match(decodedUrl, /^https:\/\/ea\.example\.test\/real-time-dispatch\/\?/);
-    assert.match(decodedUrl, /\$filter=FiveMinuteIntervalDatetime\+ge\+datetime'2026-09-02T12:00'/);
-    assert.match(decodedUrl, /\$select=PointOfConnectionCode,FiveMinuteIntervalDatetime,RunDateTime,SPDLoadMegawatt,SPDGenerationMegawatt/);
+    assert.equal(url, 'https://ea.example.test/real-time-dispatch/');
 });
 
 test('aggregates Electricity Authority dispatch rows by 5-minute interval', () => {
@@ -314,6 +311,7 @@ test('merges Electricity Authority latest demand into NZ current response', asyn
     const eaCall = calls.find((call) => call.url.includes('ea-current.test'));
     assert.equal(response.status, 200);
     assert.equal(eaCall.config.headers['Ocp-Apim-Subscription-Key'], 'secret-ea-key');
+    assert.equal(eaCall.config.headers.Accept, undefined);
     assert.equal(response.body.totalDemandMW, 950);
     assert.equal(response.body.totalGenerationMW, 970);
     assert.equal(response.body.historyCoverage, 'partial');
@@ -325,7 +323,7 @@ test('merges Electricity Authority latest demand into NZ current response', asyn
     assert.equal(JSON.stringify(response.body).includes('secret-ea-key'), false);
 });
 
-test('marks NZ history as partial when Electricity Authority dispatch data is available', () => {
+test('keeps NZ carbon history limited when Electricity Authority dispatch data is available', () => {
     const carbonTimestamp = new Date().toISOString();
     const dispatchTimestamp = new Date(Date.now() + 5 * 60 * 1000).toISOString();
 
@@ -358,10 +356,61 @@ test('marks NZ history as partial when Electricity Authority dispatch data is av
         }
     );
 
-    assert.equal(history.historyCoverage, 'partial');
+    assert.equal(history.historyCoverage, 'limited');
     assert.equal(history.history[0].totalDemandMW, 950);
     assert.equal(history.history[0].totalGenerationMW, 970);
+    assert.equal(history.history[0].dispatchMatchedCarbonSample, true);
+    assert.equal(history.dispatchIntervalCount, 0);
     assert.match(history.dataNotes, /Electricity Authority real-time dispatch/);
+});
+
+test('does not stamp latest EA dispatch demand onto unmatched EM6 carbon samples', () => {
+    const carbonTimestamp = new Date().toISOString();
+    const dispatchTimestamp = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+
+    const history = transformNewZealandHistory(
+        {
+            items: [
+                { timestamp: carbonTimestamp, nz_carbon_gkwh: '80' },
+            ],
+        },
+        {
+            items: [
+                {
+                    generation_type: [
+                        {
+                            hyd_mwh: 480,
+                        },
+                    ],
+                },
+            ],
+        },
+        24,
+        {
+            latest: {
+                timestamp: dispatchTimestamp,
+                totalDemandMW: 1800,
+                totalGenerationMW: 1900,
+            },
+            history: [
+                {
+                    timestamp: dispatchTimestamp,
+                    totalDemandMW: 1800,
+                    totalGenerationMW: 1900,
+                },
+            ],
+            dispatchIntervalCount: 1,
+            dispatchLatestTimestamp: dispatchTimestamp,
+        }
+    );
+
+    assert.equal(history.historyCoverage, 'limited');
+    assert.equal(history.history[0].totalDemandMW, 10);
+    assert.equal(history.history[0].totalGenerationMW, undefined);
+    assert.equal(history.history[0].demandTimestamp, undefined);
+    assert.equal(history.history[0].dispatchMatchedCarbonSample, false);
+    assert.equal(history.dispatchIntervalCount, 1);
+    assert.equal(history.dispatchLatestTimestamp, dispatchTimestamp);
 });
 
 test('transforms OpenElectricity time series into regional and aggregate history', () => {
@@ -542,6 +591,12 @@ test('australia endpoint returns transformed OpenElectricity records', async () 
 });
 
 test('new zealand endpoint returns transformed EM6 records', async () => {
+    const previousProvider = process.env.NZ_REALTIME_PROVIDER;
+    const previousEaKey = process.env.EA_API_KEY;
+
+    process.env.NZ_REALTIME_PROVIDER = 'em6-free';
+    delete process.env.EA_API_KEY;
+
     const responses = [
         {
             data: {
@@ -575,6 +630,9 @@ test('new zealand endpoint returns transformed EM6 records', async () => {
     });
 
     const response = await request(app, '/api/emissions/new-zealand');
+
+    restoreEnv('NZ_REALTIME_PROVIDER', previousProvider);
+    restoreEnv('EA_API_KEY', previousEaKey);
 
     assert.equal(response.status, 200);
     assert.equal(response.body.country, 'New Zealand');
@@ -729,6 +787,12 @@ test('optional Electricity Authority provider falls back on upstream errors', as
 });
 
 test('planner endpoint includes limited-history note for New Zealand free data', async () => {
+    const previousProvider = process.env.NZ_REALTIME_PROVIDER;
+    const previousEaKey = process.env.EA_API_KEY;
+
+    process.env.NZ_REALTIME_PROVIDER = 'em6-free';
+    delete process.env.EA_API_KEY;
+
     const responses = [
         {
             data: {
@@ -796,6 +860,9 @@ test('planner endpoint includes limited-history note for New Zealand free data',
             durationHours: 2,
         },
     });
+
+    restoreEnv('NZ_REALTIME_PROVIDER', previousProvider);
+    restoreEnv('EA_API_KEY', previousEaKey);
 
     assert.equal(response.status, 200);
     assert.equal(response.body.historyCoverage, 'limited');

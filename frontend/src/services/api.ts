@@ -42,6 +42,7 @@ export interface EmissionsData {
     totalGenerationMW?: number;
     demandTimestamp?: string;
     runDateTime?: string;
+    dispatchMatchedCarbonSample?: boolean;
     carbonIntensity_gCO2kWh: number;
     generationMix: GenerationMix;
     renewablePercentage?: number;
@@ -65,6 +66,9 @@ export interface HistoryResponse {
     dataSources?: string[];
     historyCoverage?: 'limited' | 'partial' | 'full';
     dataNotes?: string;
+    dispatchCoverage?: string;
+    dispatchIntervalCount?: number;
+    dispatchLatestTimestamp?: string;
 }
 
 export interface PlannerInput {

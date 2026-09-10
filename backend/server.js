@@ -15,7 +15,7 @@ const EM6_CARBON_SOURCE = 'EM6 free current carbon intensity';
 const EM6_GENERATION_SOURCE = 'EM6 free generation quantities';
 const EA_DISPATCH_SOURCE = 'Electricity Authority real-time dispatch';
 const NZ_EM6_FREE_NOTE = 'EM6 free carbon feed provides the last three trading periods; 24-hour NZ carbon history requires a richer registered or paid feed.';
-const NZ_EM6_EA_NOTE = 'EM6 provides NZ carbon intensity while Electricity Authority real-time dispatch provides recent demand/generation history; carbon history is still limited by the free EM6 feed.';
+const NZ_EM6_EA_NOTE = 'EM6 provides NZ carbon intensity while Electricity Authority real-time dispatch provides the latest demand/generation snapshot; carbon history is still limited by the free EM6 feed.';
 const NEM_REGIONS = {
     QLD1: 'QLD',
     NSW1: 'NSW',
@@ -275,13 +275,7 @@ async function fetchNzRealtimeFromElectricityAuthority(httpClient, hours = 24) {
     }
 
     try {
-        const response = await httpClient.get(buildElectricityAuthorityDispatchUrl(cappedHours), {
-            headers: {
-                'Ocp-Apim-Subscription-Key': process.env.EA_API_KEY,
-                Accept: 'application/json',
-            },
-            timeout: 15000,
-        });
+        const response = await requestElectricityAuthorityDispatch(httpClient);
         const history = transformElectricityAuthorityDispatchData(response.data);
 
         if (history.length === 0) {
@@ -293,7 +287,9 @@ async function fetchNzRealtimeFromElectricityAuthority(httpClient, hours = 24) {
             source: EA_DISPATCH_SOURCE,
             latest: history[history.length - 1],
             history,
-            historyCoverage: 'partial',
+            dispatchCoverage: 'latest-only',
+            dispatchIntervalCount: history.length,
+            dispatchLatestTimestamp: history[history.length - 1].timestamp,
             dataSources: [EA_DISPATCH_SOURCE],
             dataNotes: NZ_EM6_EA_NOTE,
         };
@@ -310,6 +306,17 @@ async function fetchNzRealtimeFromElectricityAuthority(httpClient, hours = 24) {
         console.warn('Electricity Authority real-time dispatch unavailable; falling back to EM6 free data:', mappedError.logMessage);
         return null;
     }
+}
+
+async function requestElectricityAuthorityDispatch(httpClient) {
+    const requestConfig = {
+        headers: {
+            'Ocp-Apim-Subscription-Key': process.env.EA_API_KEY,
+        },
+        timeout: 15000,
+    };
+
+    return httpClient.get(buildElectricityAuthorityDispatchUrl(), requestConfig);
 }
 
 function getNzProviderStatus() {
@@ -364,7 +371,7 @@ function transformNewZealandData(carbonData, generationData, realtimeData = null
         generationMix,
         renewablePercentage: getEm6RenewablePercentage(latestCarbon),
         dataSources: getNzDataSources(realtimeData),
-        historyCoverage: getNzHistoryCoverage(realtimeData),
+        historyCoverage: getNzCurrentCoverage(realtimeData),
         dataNotes: getNzDataNotes(realtimeData),
     };
 }
@@ -378,6 +385,7 @@ function transformNewZealandHistory(carbonData, generationData, hours = 24, real
     const history = (carbonData.items || [])
         .map((item) => {
             const realtimePoint = getNearestEaHistoryPoint(realtimeData?.history || [], item.timestamp);
+            const pointDataSources = getNzDataSources(realtimePoint ? realtimeData : null);
 
             return createHistoryPoint({
                 country: 'New Zealand',
@@ -386,11 +394,12 @@ function transformNewZealandHistory(carbonData, generationData, hours = 24, real
                 totalGenerationMW: realtimePoint?.totalGenerationMW,
                 demandTimestamp: realtimePoint?.timestamp,
                 runDateTime: realtimePoint?.runDateTime,
+                dispatchMatchedCarbonSample: Boolean(realtimePoint),
                 carbonIntensity_gCO2kWh: parseFloat(item.nz_carbon_gkwh) || 0,
                 generationMix,
                 renewablePercentage: getEm6RenewablePercentage(item),
-                dataSources: getNzDataSources(realtimeData),
-                historyCoverage: getNzHistoryCoverage(realtimeData),
+                dataSources: pointDataSources,
+                historyCoverage: getNzHistoryCoverage(),
                 dataNotes: getNzDataNotes(realtimeData),
             });
         })
@@ -399,9 +408,12 @@ function transformNewZealandHistory(carbonData, generationData, hours = 24, real
 
     return {
         ...createHistoryResponse('New Zealand', history),
-        historyCoverage: getNzHistoryCoverage(realtimeData),
+        historyCoverage: getNzHistoryCoverage(),
         dataSources: getNzDataSources(realtimeData),
         dataNotes: getNzDataNotes(realtimeData),
+        dispatchCoverage: realtimeData?.dispatchCoverage,
+        dispatchIntervalCount: realtimeData?.dispatchIntervalCount || 0,
+        dispatchLatestTimestamp: realtimeData?.dispatchLatestTimestamp,
     };
 }
 
@@ -415,6 +427,10 @@ function getNzDataSources(realtimeData = null) {
 }
 
 function getNzHistoryCoverage(realtimeData = null) {
+    return 'limited';
+}
+
+function getNzCurrentCoverage(realtimeData = null) {
     return realtimeData?.history?.length ? 'partial' : 'limited';
 }
 
@@ -437,25 +453,8 @@ function getEaHistoryHours(hours) {
     return Math.min(Math.max(Math.round(parsed), 1), 24);
 }
 
-function buildElectricityAuthorityDispatchUrl(hours = 24, now = new Date()) {
-    const cappedHours = getEaHistoryHours(hours);
-    const start = new Date(now.getTime() - cappedHours * 60 * 60 * 1000);
-    const params = new URLSearchParams();
-    params.append('$filter', `FiveMinuteIntervalDatetime ge datetime'${formatEaDateTime(start)}'`);
-    params.append('$orderby', 'FiveMinuteIntervalDatetime asc');
-    params.append('$select', [
-        'PointOfConnectionCode',
-        'FiveMinuteIntervalDatetime',
-        'RunDateTime',
-        'SPDLoadMegawatt',
-        'SPDGenerationMegawatt',
-    ].join(','));
-
-    return `${getElectricityAuthorityBaseUrl()}${getElectricityAuthorityDispatchPath()}?${params.toString()}`;
-}
-
-function formatEaDateTime(date) {
-    return date.toISOString().slice(0, 16);
+function buildElectricityAuthorityDispatchUrl() {
+    return `${getElectricityAuthorityBaseUrl()}${getElectricityAuthorityDispatchPath()}`;
 }
 
 function transformElectricityAuthorityDispatchData(payload = {}) {
@@ -862,6 +861,7 @@ function createHistoryPoint(record) {
         totalGenerationMW: record.totalGenerationMW,
         demandTimestamp: record.demandTimestamp,
         runDateTime: record.runDateTime,
+        dispatchMatchedCarbonSample: record.dispatchMatchedCarbonSample,
         dataSources: record.dataSources,
         historyCoverage: record.historyCoverage,
         dataNotes: record.dataNotes,

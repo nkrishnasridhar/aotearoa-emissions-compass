@@ -39,6 +39,9 @@ export interface EmissionsData {
     state?: string;
     timestamp: string;
     totalDemandMW: number;
+    totalGenerationMW?: number;
+    demandTimestamp?: string;
+    runDateTime?: string;
     carbonIntensity_gCO2kWh: number;
     generationMix: GenerationMix;
     renewablePercentage?: number;

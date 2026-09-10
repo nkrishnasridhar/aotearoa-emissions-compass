@@ -238,6 +238,8 @@ const Dashboard: React.FC = () => {
                 <p className="chart-note">
                     {nzHistory?.historyCoverage === "limited"
                         ? "New Zealand free carbon history is limited to recent EM6 samples, while Australia is shown as a smoothed 30-minute NEM aggregate."
+                        : nzHistory?.historyCoverage === "partial"
+                            ? "New Zealand combines EM6 carbon samples with Electricity Authority dispatch demand; carbon history is still limited by the free EM6 feed."
                         : "Australia is shown as a 30-minute smoothed NEM aggregate to make the dense 5-minute data readable."}
                 </p>
                 <div className="cleanest-row">
@@ -263,15 +265,15 @@ const Dashboard: React.FC = () => {
                     <label>
                         Grid
                         <select value={planner.country} onChange={(event) => setPlanner((current) => ({ ...current, country: event.target.value as PlannerState["country"], region: "" }))}>
-                            <option>Australia</option>
-                            <option>New Zealand</option>
+                            <option key="Australia">Australia</option>
+                            <option key="New Zealand">New Zealand</option>
                         </select>
                     </label>
                     {planner.country === "Australia" && (
                         <label>
                             Region
                             <select value={planner.region || ""} onChange={(event) => setPlanner((current) => ({ ...current, region: event.target.value }))}>
-                                <option value="">Australia aggregate</option>
+                                <option key="Australia aggregate" value="">Australia aggregate</option>
                                 {auRegionData.map((state) => <option key={state.state} value={state.state}>{state.state}</option>)}
                             </select>
                         </label>
@@ -328,7 +330,7 @@ const Dashboard: React.FC = () => {
             </section>
 
             <footer className="dashboard-footer">
-                <p>Data sources: NZ - EM6 API | AU - OpenElectricity API</p>
+                <p>Data sources: NZ - EM6 API + optional Electricity Authority dispatch | AU - OpenElectricity API</p>
                 <p className="auto-refresh-note">Auto-refreshes every 5 minutes</p>
             </footer>
         </div>
@@ -392,7 +394,7 @@ function PlannerResult({ estimate }: { estimate: PlannerEstimate }) {
                     <p>{estimate.recommendation}</p>
                 </div>
             </div>
-            {estimate.historyCoverage === "limited" && estimate.dataNotes && (
+            {(estimate.historyCoverage === "limited" || estimate.historyCoverage === "partial") && estimate.dataNotes && (
                 <p className="planner-note">{estimate.dataNotes}</p>
             )}
         </>
@@ -453,11 +455,14 @@ function buildInsights(nz: EmissionsData | null, au: EmissionsData | null, auSta
     if (nz) {
         const leadingRenewable = nz.leadingRenewableFuel || getLeadingRenewableFuel(nz.generationMix);
         const thermalShare = nz.thermalSharePercentage ?? getFuelShare(nz.generationMix, ["coal", "gas"]);
+        const hasEaDispatch = nz.dataSources?.some((source) => source.includes("Electricity Authority"));
 
         insights.push({
             label: "NZ driver",
             value: capitalize(leadingRenewable || "Unknown"),
-            detail: `${capitalize(leadingRenewable || "Unknown")} leads the visible NZ mix; thermal share is ${thermalShare}%.`,
+            detail: hasEaDispatch
+                ? `${capitalize(leadingRenewable || "Unknown")} leads the visible NZ mix; EA dispatch demand is active.`
+                : `${capitalize(leadingRenewable || "Unknown")} leads the visible NZ mix; thermal share is ${thermalShare}%.`,
         });
     }
 

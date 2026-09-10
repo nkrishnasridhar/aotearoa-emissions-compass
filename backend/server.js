@@ -9,7 +9,13 @@ const OPEN_ELECTRICITY_BASE_URL =
     process.env.OPENELECTRICITY_API_BASE_URL || 'https://api.openelectricity.org.au/v4';
 const NZ_CARBON_API_URL = 'https://api.em6.co.nz/ords/em6/data_api/current_carbon_intensity';
 const NZ_GENERATION_API_URL = 'https://api.em6.co.nz/ords/em6/data_api/free/price';
+const DEFAULT_EA_API_BASE_URL = 'https://emi.azure-api.net';
+const DEFAULT_EA_REALTIME_DISPATCH_PATH = '/real-time-dispatch/';
+const EM6_CARBON_SOURCE = 'EM6 free current carbon intensity';
+const EM6_GENERATION_SOURCE = 'EM6 free generation quantities';
+const EA_DISPATCH_SOURCE = 'Electricity Authority real-time dispatch';
 const NZ_EM6_FREE_NOTE = 'EM6 free carbon feed provides the last three trading periods; 24-hour NZ carbon history requires a richer registered or paid feed.';
+const NZ_EM6_EA_NOTE = 'EM6 provides NZ carbon intensity while Electricity Authority real-time dispatch provides recent demand/generation history; carbon history is still limited by the free EM6 feed.';
 const NEM_REGIONS = {
     QLD1: 'QLD',
     NSW1: 'NSW',
@@ -21,6 +27,7 @@ const CACHE_TTL_MS = 4 * 60 * 1000;
 
 let australiaCache = null;
 let newZealandCache = null;
+let nzEaRealtimeCache = null;
 
 function createApp(options = {}) {
     const app = express();
@@ -82,13 +89,19 @@ function createApp(options = {}) {
 
     app.get('/api/emissions/new-zealand', async (req, res) => {
         try {
-            if (newZealandCache && Date.now() - newZealandCache.cachedAt < CACHE_TTL_MS) {
+            const cacheKey = getNzCacheKey();
+            if (
+                newZealandCache &&
+                newZealandCache.cacheKey === cacheKey &&
+                Date.now() - newZealandCache.cachedAt < CACHE_TTL_MS
+            ) {
                 return res.json(newZealandCache.data);
             }
 
             const data = await fetchNewZealandData(httpClient);
             newZealandCache = {
                 cachedAt: Date.now(),
+                cacheKey,
                 data,
             };
 
@@ -136,7 +149,7 @@ function createApp(options = {}) {
             status: 'ok',
             timestamp: new Date().toISOString(),
             nzProvider: getNzProviderStatus(),
-            electricityAuthorityConfigured: Boolean(process.env.EA_API_KEY && process.env.EA_API_BASE_URL),
+            electricityAuthorityConfigured: Boolean(process.env.EA_API_KEY),
             openElectricityConfigured: Boolean(process.env.OPENELECTRICITY_API_KEY),
         });
     });
@@ -215,7 +228,7 @@ async function fetchNewZealandData(httpClient = axios) {
     const [carbonResponse, generationResponse, realtimeData] = await Promise.all([
         fetchNzCarbonFromEm6Free(httpClient),
         fetchNzGenerationFromEm6Free(httpClient),
-        fetchNzRealtimeFromElectricityAuthority(httpClient),
+        fetchNzRealtimeFromElectricityAuthority(httpClient, 2),
     ]);
 
     return enrichEmissionRecord(
@@ -227,7 +240,7 @@ async function fetchNewZealandHistory(httpClient = axios, hours = 24) {
     const [carbonResponse, generationResponse, realtimeData] = await Promise.all([
         fetchNzCarbonFromEm6Free(httpClient),
         fetchNzGenerationFromEm6Free(httpClient),
-        fetchNzRealtimeFromElectricityAuthority(httpClient),
+        fetchNzRealtimeFromElectricityAuthority(httpClient, hours),
     ]);
 
     return transformNewZealandHistory(carbonResponse.data, generationResponse.data, hours, realtimeData);
@@ -241,27 +254,74 @@ async function fetchNzGenerationFromEm6Free(httpClient) {
     return httpClient.get(NZ_GENERATION_API_URL, { timeout: 15000 });
 }
 
-async function fetchNzRealtimeFromElectricityAuthority(httpClient) {
+async function fetchNzRealtimeFromElectricityAuthority(httpClient, hours = 24) {
     if ((process.env.NZ_REALTIME_PROVIDER || 'em6-free') !== 'ea') {
         return null;
     }
 
-    if (!process.env.EA_API_KEY || !process.env.EA_API_BASE_URL) {
-        console.warn('NZ_REALTIME_PROVIDER is set to ea, but EA_API_KEY or EA_API_BASE_URL is missing; falling back to EM6 free data.');
+    if (!process.env.EA_API_KEY) {
+        console.warn('NZ_REALTIME_PROVIDER is set to ea, but EA_API_KEY is missing; falling back to EM6 free data.');
         return null;
     }
 
-    // Placeholder for a future documented EA real-time dispatch mapping. The provider
-    // hook is intentionally non-blocking so free EM6 data remains the default.
-    return null;
+    const cappedHours = getEaHistoryHours(hours);
+    const cacheKey = `${getElectricityAuthorityBaseUrl()}|${getElectricityAuthorityDispatchPath()}|${cappedHours}`;
+    if (
+        nzEaRealtimeCache &&
+        nzEaRealtimeCache.cacheKey === cacheKey &&
+        Date.now() - nzEaRealtimeCache.cachedAt < CACHE_TTL_MS
+    ) {
+        return nzEaRealtimeCache.data;
+    }
+
+    try {
+        const response = await httpClient.get(buildElectricityAuthorityDispatchUrl(cappedHours), {
+            headers: {
+                'Ocp-Apim-Subscription-Key': process.env.EA_API_KEY,
+                Accept: 'application/json',
+            },
+            timeout: 15000,
+        });
+        const history = transformElectricityAuthorityDispatchData(response.data);
+
+        if (history.length === 0) {
+            console.warn('Electricity Authority real-time dispatch returned no usable rows; falling back to EM6 free data.');
+            return null;
+        }
+
+        const data = {
+            source: EA_DISPATCH_SOURCE,
+            latest: history[history.length - 1],
+            history,
+            historyCoverage: 'partial',
+            dataSources: [EA_DISPATCH_SOURCE],
+            dataNotes: NZ_EM6_EA_NOTE,
+        };
+
+        nzEaRealtimeCache = {
+            cachedAt: Date.now(),
+            cacheKey,
+            data,
+        };
+
+        return data;
+    } catch (error) {
+        const mappedError = mapElectricityAuthorityError(error);
+        console.warn('Electricity Authority real-time dispatch unavailable; falling back to EM6 free data:', mappedError.logMessage);
+        return null;
+    }
 }
 
 function getNzProviderStatus() {
-    if ((process.env.NZ_REALTIME_PROVIDER || 'em6-free') === 'ea' && process.env.EA_API_KEY && process.env.EA_API_BASE_URL) {
+    if ((process.env.NZ_REALTIME_PROVIDER || 'em6-free') === 'ea' && process.env.EA_API_KEY) {
         return 'ea';
     }
 
     return 'em6-free';
+}
+
+function getNzCacheKey() {
+    return `${getNzProviderStatus()}|${Boolean(process.env.EA_API_KEY)}|${getElectricityAuthorityBaseUrl()}|${getElectricityAuthorityDispatchPath()}`;
 }
 
 function transformNewZealandData(carbonData, generationData, realtimeData = null) {
@@ -296,45 +356,182 @@ function transformNewZealandData(carbonData, generationData, realtimeData = null
     return {
         country: 'New Zealand',
         timestamp: latestCarbon.timestamp || new Date().toISOString(),
-        totalDemandMW: realtimeData?.totalDemandMW || totalGeneration,
+        totalDemandMW: realtimeData?.latest?.totalDemandMW || totalGeneration,
+        totalGenerationMW: realtimeData?.latest?.totalGenerationMW,
+        demandTimestamp: realtimeData?.latest?.timestamp,
+        runDateTime: realtimeData?.latest?.runDateTime,
         carbonIntensity_gCO2kWh: parseFloat(latestCarbon.nz_carbon_gkwh) || 0,
         generationMix,
         renewablePercentage: getEm6RenewablePercentage(latestCarbon),
-        dataSources: ['EM6 free current carbon intensity', 'EM6 free generation quantities'],
-        historyCoverage: 'limited',
-        dataNotes: NZ_EM6_FREE_NOTE,
+        dataSources: getNzDataSources(realtimeData),
+        historyCoverage: getNzHistoryCoverage(realtimeData),
+        dataNotes: getNzDataNotes(realtimeData),
     };
 }
 
 function transformNewZealandHistory(carbonData, generationData, hours = 24, realtimeData = null) {
     const latestGeneration = generationData.items?.[0];
     const generationMix = latestGeneration ? getNewZealandGenerationMix(latestGeneration) : {};
-    const totalDemandMW = realtimeData?.totalDemandMW || Object.values(generationMix).reduce((sum, value) => sum + value, 0);
+    const fallbackDemandMW = Object.values(generationMix).reduce((sum, value) => sum + value, 0);
     const cutoff = Date.now() - hours * 60 * 60 * 1000;
 
     const history = (carbonData.items || [])
-        .map((item) =>
-            createHistoryPoint({
+        .map((item) => {
+            const realtimePoint = getNearestEaHistoryPoint(realtimeData?.history || [], item.timestamp);
+
+            return createHistoryPoint({
                 country: 'New Zealand',
                 timestamp: item.timestamp,
-                totalDemandMW,
+                totalDemandMW: realtimePoint?.totalDemandMW || fallbackDemandMW,
+                totalGenerationMW: realtimePoint?.totalGenerationMW,
+                demandTimestamp: realtimePoint?.timestamp,
+                runDateTime: realtimePoint?.runDateTime,
                 carbonIntensity_gCO2kWh: parseFloat(item.nz_carbon_gkwh) || 0,
                 generationMix,
                 renewablePercentage: getEm6RenewablePercentage(item),
-                dataSources: ['EM6 free current carbon intensity', 'EM6 free generation quantities'],
-                historyCoverage: 'limited',
-                dataNotes: NZ_EM6_FREE_NOTE,
-            })
-        )
+                dataSources: getNzDataSources(realtimeData),
+                historyCoverage: getNzHistoryCoverage(realtimeData),
+                dataNotes: getNzDataNotes(realtimeData),
+            });
+        })
         .filter((point) => new Date(point.timestamp).getTime() >= cutoff)
         .sort((left, right) => new Date(left.timestamp) - new Date(right.timestamp));
 
     return {
         ...createHistoryResponse('New Zealand', history),
-        historyCoverage: 'limited',
-        dataSources: ['EM6 free current carbon intensity', 'EM6 free generation quantities'],
-        dataNotes: NZ_EM6_FREE_NOTE,
+        historyCoverage: getNzHistoryCoverage(realtimeData),
+        dataSources: getNzDataSources(realtimeData),
+        dataNotes: getNzDataNotes(realtimeData),
     };
+}
+
+function getNzDataSources(realtimeData = null) {
+    const sources = [EM6_CARBON_SOURCE, EM6_GENERATION_SOURCE];
+    if (realtimeData?.history?.length) {
+        sources.push(EA_DISPATCH_SOURCE);
+    }
+
+    return sources;
+}
+
+function getNzHistoryCoverage(realtimeData = null) {
+    return realtimeData?.history?.length ? 'partial' : 'limited';
+}
+
+function getNzDataNotes(realtimeData = null) {
+    return realtimeData?.history?.length ? NZ_EM6_EA_NOTE : NZ_EM6_FREE_NOTE;
+}
+
+function getElectricityAuthorityBaseUrl() {
+    return (process.env.EA_API_BASE_URL || DEFAULT_EA_API_BASE_URL).replace(/\/+$/, '');
+}
+
+function getElectricityAuthorityDispatchPath() {
+    const path = process.env.EA_REALTIME_DISPATCH_PATH || DEFAULT_EA_REALTIME_DISPATCH_PATH;
+    return path.startsWith('/') ? path : `/${path}`;
+}
+
+function getEaHistoryHours(hours) {
+    const parsed = Number(hours || 24);
+    if (!Number.isFinite(parsed)) return 24;
+    return Math.min(Math.max(Math.round(parsed), 1), 24);
+}
+
+function buildElectricityAuthorityDispatchUrl(hours = 24, now = new Date()) {
+    const cappedHours = getEaHistoryHours(hours);
+    const start = new Date(now.getTime() - cappedHours * 60 * 60 * 1000);
+    const params = new URLSearchParams();
+    params.append('$filter', `FiveMinuteIntervalDatetime ge datetime'${formatEaDateTime(start)}'`);
+    params.append('$orderby', 'FiveMinuteIntervalDatetime asc');
+    params.append('$select', [
+        'PointOfConnectionCode',
+        'FiveMinuteIntervalDatetime',
+        'RunDateTime',
+        'SPDLoadMegawatt',
+        'SPDGenerationMegawatt',
+    ].join(','));
+
+    return `${getElectricityAuthorityBaseUrl()}${getElectricityAuthorityDispatchPath()}?${params.toString()}`;
+}
+
+function formatEaDateTime(date) {
+    return date.toISOString().slice(0, 16);
+}
+
+function transformElectricityAuthorityDispatchData(payload = {}) {
+    const rows = getElectricityAuthorityRows(payload);
+    const byTimestamp = new Map();
+
+    rows.forEach((row) => {
+        const timestamp = readObjectValue(row, 'FiveMinuteIntervalDatetime');
+        if (!timestamp || Number.isNaN(new Date(timestamp).getTime())) return;
+
+        const load = toPositiveNumber(readObjectValue(row, 'SPDLoadMegawatt'));
+        const generation = toPositiveNumber(readObjectValue(row, 'SPDGenerationMegawatt'));
+        if (load === null && generation === null) return;
+
+        const bucket = byTimestamp.get(timestamp) || {
+            timestamp,
+            runDateTime: readObjectValue(row, 'RunDateTime') || null,
+            totalDemandMW: 0,
+            totalGenerationMW: 0,
+            pointCount: 0,
+        };
+
+        if (load !== null) bucket.totalDemandMW += load;
+        if (generation !== null) bucket.totalGenerationMW += generation;
+        bucket.pointCount += 1;
+
+        const runDateTime = readObjectValue(row, 'RunDateTime');
+        if (runDateTime) {
+            bucket.runDateTime = latestTimestamp(bucket.runDateTime, runDateTime);
+        }
+
+        byTimestamp.set(timestamp, bucket);
+    });
+
+    return Array.from(byTimestamp.values())
+        .filter((point) => point.totalDemandMW > 0 || point.totalGenerationMW > 0)
+        .sort((left, right) => new Date(left.timestamp) - new Date(right.timestamp));
+}
+
+function getElectricityAuthorityRows(payload) {
+    if (Array.isArray(payload)) return payload;
+    if (Array.isArray(payload.value)) return payload.value;
+    if (Array.isArray(payload.items)) return payload.items;
+    return [];
+}
+
+function readObjectValue(row, pascalKey) {
+    const camelKey = pascalKey.charAt(0).toLowerCase() + pascalKey.slice(1);
+    return row[pascalKey] ?? row[camelKey];
+}
+
+function toPositiveNumber(value) {
+    const numericValue = Number(value);
+    return Number.isFinite(numericValue) && numericValue > 0 ? numericValue : null;
+}
+
+function getNearestEaHistoryPoint(history, timestamp, maxDistanceMinutes = 10) {
+    const target = new Date(timestamp).getTime();
+    if (!Number.isFinite(target)) return null;
+
+    const maxDistanceMs = maxDistanceMinutes * 60 * 1000;
+    let nearest = null;
+    let nearestDistance = Infinity;
+
+    history.forEach((point) => {
+        const pointTime = new Date(point.timestamp).getTime();
+        if (!Number.isFinite(pointTime)) return;
+
+        const distance = Math.abs(pointTime - target);
+        if (distance <= maxDistanceMs && distance < nearestDistance) {
+            nearest = point;
+            nearestDistance = distance;
+        }
+    });
+
+    return nearest;
 }
 
 function getEm6RenewablePercentage(carbonItem = {}) {
@@ -662,6 +859,9 @@ function createHistoryPoint(record) {
         generationMix: record.generationMix,
         isComplete: record.isComplete,
         renewablePercentage: record.renewablePercentage,
+        totalGenerationMW: record.totalGenerationMW,
+        demandTimestamp: record.demandTimestamp,
+        runDateTime: record.runDateTime,
         dataSources: record.dataSources,
         historyCoverage: record.historyCoverage,
         dataNotes: record.dataNotes,
@@ -1089,6 +1289,32 @@ function mapOpenElectricityError(error) {
     };
 }
 
+function mapElectricityAuthorityError(error) {
+    const upstreamStatus = error.response?.status;
+
+    if (upstreamStatus === 401 || upstreamStatus === 403) {
+        return {
+            status: 502,
+            message: 'Electricity Authority dispatch data is unavailable because authentication failed.',
+            logMessage: `Electricity Authority authentication failed with status ${upstreamStatus}.`,
+        };
+    }
+
+    if (upstreamStatus === 429) {
+        return {
+            status: 503,
+            message: 'Electricity Authority dispatch data is temporarily unavailable because rate limits were reached.',
+            logMessage: 'Electricity Authority rate limit reached.',
+        };
+    }
+
+    return {
+        status: 502,
+        message: 'Electricity Authority dispatch data is temporarily unavailable.',
+        logMessage: error.message || 'Unknown Electricity Authority error.',
+    };
+}
+
 const app = createApp();
 
 if (require.main === module) {
@@ -1113,5 +1339,8 @@ module.exports.calculateRenewablePercentage = calculateRenewablePercentage;
 module.exports.classifyGridSignal = classifyGridSignal;
 module.exports.mapFuelGroup = mapFuelGroup;
 module.exports.mapOpenElectricityError = mapOpenElectricityError;
+module.exports.mapElectricityAuthorityError = mapElectricityAuthorityError;
 module.exports.buildQueryString = buildQueryString;
 module.exports.getNemDateStart = getNemDateStart;
+module.exports.buildElectricityAuthorityDispatchUrl = buildElectricityAuthorityDispatchUrl;
+module.exports.transformElectricityAuthorityDispatchData = transformElectricityAuthorityDispatchData;

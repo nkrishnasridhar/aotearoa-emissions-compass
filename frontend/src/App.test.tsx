@@ -22,6 +22,10 @@ import {
   fetchNewZealandHistory,
 } from './services/api';
 
+beforeEach(() => {
+  jest.clearAllMocks();
+});
+
 test('renders the grid timing decision dashboard', async () => {
   const currentNz = {
     country: 'New Zealand',
@@ -58,6 +62,7 @@ test('renders the grid timing decision dashboard', async () => {
   ];
   const currentAu = {
     country: 'Australia',
+    state: 'NSW',
     timestamp: '2026-09-03T09:00:00Z',
     totalDemandMW: 9000,
     carbonIntensity_gCO2kWh: 520,
@@ -122,5 +127,91 @@ test('renders the grid timing decision dashboard', async () => {
 
   await waitFor(() => {
     expect(screen.getByText(/EM6 free carbon feed provides the last three trading periods/i)).toBeInTheDocument();
+  });
+});
+
+test('renders partial NZ history when Electricity Authority dispatch is active', async () => {
+  const currentNz = {
+    country: 'New Zealand',
+    timestamp: '2026-09-03T09:00:00Z',
+    totalDemandMW: 5200,
+    totalGenerationMW: 5300,
+    carbonIntensity_gCO2kWh: 42,
+    generationMix: { hydro: 3000, wind: 1200, geothermal: 800 },
+    renewablePercentage: 100,
+    dataFreshnessMinutes: 5,
+    gridSignal: 'Use now',
+    signalReason: 'Low-carbon window.',
+    confidence: 'Medium',
+    dataSources: [
+      'EM6 free current carbon intensity',
+      'EM6 free generation quantities',
+      'Electricity Authority real-time dispatch',
+    ],
+    historyCoverage: 'partial',
+    dataNotes: 'EM6 provides NZ carbon intensity while Electricity Authority real-time dispatch provides recent demand/generation history; carbon history is still limited by the free EM6 feed.',
+    leadingRenewableFuel: 'hydro',
+    thermalSharePercentage: 3,
+  };
+  const currentAu = {
+    country: 'Australia',
+    state: 'NSW',
+    timestamp: '2026-09-03T09:00:00Z',
+    totalDemandMW: 9000,
+    carbonIntensity_gCO2kWh: 520,
+    generationMix: { coal: 5000, wind: 1000, hydro: 500 },
+    renewablePercentage: 23,
+    dataFreshnessMinutes: 5,
+    gridSignal: 'Wait',
+    signalReason: 'Mixed signal.',
+    confidence: 'High',
+  };
+  const history = {
+    country: 'New Zealand',
+    history: [currentNz],
+    cleanestWindow: currentNz,
+    historyCoverage: 'partial',
+    dataSources: currentNz.dataSources,
+    dataNotes: currentNz.dataNotes,
+  };
+
+  (fetchNewZealandData as jest.Mock).mockResolvedValue(currentNz);
+  (fetchAustraliaData as jest.Mock).mockResolvedValue([currentAu]);
+  (fetchNewZealandHistory as jest.Mock).mockResolvedValue(history);
+  (fetchAustraliaHistory as jest.Mock).mockResolvedValue({ ...history, country: 'Australia', historyCoverage: 'full' });
+  (aggregateAustraliaData as jest.Mock).mockReturnValue(currentAu);
+  (estimateActivity as jest.Mock).mockResolvedValue({
+    country: 'New Zealand',
+    region: null,
+    kWh: 10,
+    durationHours: 2,
+    now: {
+      timestamp: '2026-09-03T09:00:00Z',
+      carbonIntensity_gCO2kWh: 42,
+      estimatedKgCO2e: 0.42,
+      gridSignal: 'Use now',
+    },
+    cleanerWindow: {
+      timestamp: '2026-09-03T08:00:00Z',
+      carbonIntensity_gCO2kWh: 40,
+      estimatedKgCO2e: 0.4,
+    },
+    savingsKgCO2e: 0.02,
+    recommendation: 'Run it now.',
+    historyCoverage: 'partial',
+    dataNotes: currentNz.dataNotes,
+  });
+
+  render(<App />);
+
+  expect(await screen.findByText(/NZ: Partial recent history/i)).toBeInTheDocument();
+  expect(screen.getByText(/EA dispatch demand is active/i)).toBeInTheDocument();
+  expect(screen.getByText(/Electricity Authority dispatch demand/i)).toBeInTheDocument();
+
+  fireEvent.change(screen.getByLabelText(/Grid/i), { target: { value: 'New Zealand' } });
+  fireEvent.click(screen.getByRole('button', { name: /Estimate/i }));
+
+  await waitFor(() => {
+    expect(screen.getByText(/carbon history is still limited/i)).toBeInTheDocument();
   });
 });

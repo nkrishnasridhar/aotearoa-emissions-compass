@@ -21,7 +21,7 @@ It shows:
 - Automatic refresh every 5 minutes
 - Manual refresh for on-demand updates
 
-New Zealand data uses a free-first provider approach: EM6 free feeds provide current carbon intensity and generation context, with optional backend configuration reserved for richer registered Electricity Authority data later. Australian data comes from OpenElectricity for the National Electricity Market regions `QLD1`, `NSW1`, `VIC1`, `SA1`, and `TAS1`, then the frontend aggregates those regions into a country-level Australia card.
+New Zealand data uses a free-first provider approach: EM6 free feeds provide current carbon intensity and generation context, and an optional registered Electricity Authority API key can add recent real-time dispatch demand/generation history. Australian data comes from OpenElectricity for the National Electricity Market regions `QLD1`, `NSW1`, `VIC1`, `SA1`, and `TAS1`, then the frontend aggregates those regions into a country-level Australia card.
 
 ## Architecture
 
@@ -43,7 +43,7 @@ New Zealand data uses a free-first provider approach: EM6 free feeds provide cur
   - `GET /health` - Health check endpoint
 - **External sources**:
   - EM6 free current carbon intensity and generation data for New Zealand
-  - Optional registered Electricity Authority provider configuration for future NZ real-time data
+  - Optional Electricity Authority real-time dispatch demand/generation data for New Zealand
   - OpenElectricity generation, demand, energy, and emissions data for Australia
 
 ## Running Locally
@@ -71,12 +71,13 @@ Create `backend/.env` from `backend/.env.example` and set your OpenElectricity A
 OPENELECTRICITY_API_KEY=your-api-key
 ```
 
-Optional NZ real-time provider settings can be added later if you have a registered free Electricity Authority API configuration:
+Optional NZ real-time dispatch settings can be added if you have a registered free Electricity Authority API subscription:
 
 ```bash
 NZ_REALTIME_PROVIDER=ea
 EA_API_KEY=your-ea-api-key
-EA_API_BASE_URL=your-ea-api-base-url
+EA_API_BASE_URL=https://emi.azure-api.net
+EA_REALTIME_DISPATCH_PATH=/real-time-dispatch/
 ```
 
 The backend will start on `http://localhost:5000`.
@@ -124,9 +125,11 @@ The frontend will start on `http://localhost:3000` and open automatically in you
 1. Backend fetches from two EM6 APIs simultaneously:
    - Carbon intensity API for emissions data
    - Generation price API for fuel mix data
-2. Backend marks free EM6 carbon history as limited because it only covers the most recent trading periods
-3. Backend adds NZ-specific source metadata, leading renewable fuel, leading thermal fuel, and thermal share
-4. Frontend fetches from backend API endpoint and displays data coverage clearly
+2. If `NZ_REALTIME_PROVIDER=ea` and `EA_API_KEY` are configured, backend also fetches Electricity Authority real-time dispatch rows
+3. Backend aggregates EA dispatch rows by five-minute interval for recent demand and generation totals
+4. Backend keeps EM6 as the carbon-intensity source and marks NZ history as limited or partial depending on whether EA dispatch data is active
+5. Backend adds NZ-specific source metadata, leading renewable fuel, leading thermal fuel, and thermal share
+6. Frontend fetches from backend API endpoint and displays data coverage clearly
 
 ### Australia
 1. Backend fetches NEM data from OpenElectricity for QLD1, NSW1, VIC1, SA1, and TAS1
@@ -162,8 +165,17 @@ The frontend will start on `http://localhost:3000` and open automatically in you
 - **Generation Mix**: Returns daily generation by fuel type (MWh)
 
 ### Optional NZ Provider Hooks
-- **Electricity Authority**: Optional registered/free provider configuration is supported for future richer NZ generation and demand history
+- **Electricity Authority**: Optional registered/free provider configuration adds recent real-time dispatch demand and generation history
 - **Free-first fallback**: If optional NZ provider config is absent, the backend keeps using EM6 free feeds and marks history coverage as limited
+- **Carbon source**: EM6 remains the NZ carbon-intensity source even when EA dispatch data is active
+
+### Electricity Authority API Setup
+1. Go to the [EA API developer portal](https://emi.developer.azure-api.net/).
+2. Sign up for an API community account. This is separate from the general EMI website login.
+3. Sign in, open **Products** or **Explore APIs**, and subscribe to the product that includes wholesale market real-time dispatch data.
+4. After subscription approval, copy your subscription key from the portal profile/subscriptions page.
+5. Add the key only to `backend/.env`, then restart the backend.
+6. Check `http://localhost:5000/health`; `electricityAuthorityConfigured` should be `true` when the key is present.
 
 ### OpenElectricity APIs Used
 - **Generation**: NEM power data grouped by region and fuel technology group

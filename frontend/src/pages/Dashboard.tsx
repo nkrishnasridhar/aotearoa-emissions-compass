@@ -8,6 +8,8 @@ import {
     fetchNewZealandHistory,
     fetchNewZealandProfile,
     HistoryResponse,
+    HouseholdLever,
+    HouseholdProfileId,
     NewZealandProfile,
     PlannerEstimate,
     PlannerInput,
@@ -23,6 +25,12 @@ const ACTIVITIES = [
     { label: "Generic load", kWh: 5, durationHours: 2 },
 ];
 
+const HOUSEHOLD_PROFILES: Array<{ id: HouseholdProfileId; label: string }> = [
+    { id: "petrol-diesel", label: "I drive petrol/diesel" },
+    { id: "gas-lpg", label: "I use gas/LPG at home" },
+    { id: "mostly-electric", label: "Mostly electric already" },
+];
+
 interface PlannerState extends PlannerInput {
     activity: string;
 }
@@ -35,6 +43,7 @@ const Dashboard: React.FC = () => {
     const [plannerLoading, setPlannerLoading] = useState(false);
     const [errors, setErrors] = useState<string[]>([]);
     const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+    const [householdProfile, setHouseholdProfile] = useState<HouseholdProfileId>("petrol-diesel");
     const [planner, setPlanner] = useState<PlannerState>({
         activity: ACTIVITIES[0].label,
         country: "New Zealand",
@@ -90,6 +99,10 @@ const Dashboard: React.FC = () => {
         () => buildActionCards(nzData, nzHistory, nzProfile, planner),
         [nzData, nzHistory, nzProfile, planner]
     );
+    const bestNextMove = useMemo(
+        () => getBestNextMove(nzProfile?.householdLevers || [], householdProfile),
+        [nzProfile, householdProfile]
+    );
 
     const handleActivityChange = (activity: string) => {
         const selected = ACTIVITIES.find((item) => item.label === activity) || ACTIVITIES[0];
@@ -136,7 +149,7 @@ const Dashboard: React.FC = () => {
                     <p className="eyebrow">Aotearoa emissions compass</p>
                     <h1>Where do emissions matter in New Zealand?</h1>
                     <p className="header-copy">
-                        A practical NZ dashboard for live electricity timing, national emissions context, and household choices that can move with today&apos;s grid.
+                        Choose the bigger lever first, then use today&apos;s grid to time flexible electric loads.
                     </p>
                 </div>
                 <div className="header-controls">
@@ -170,6 +183,15 @@ const Dashboard: React.FC = () => {
                 <p>{todayTake.detail}</p>
             </section>
 
+            {nzProfile && bestNextMove && (
+                <BestNextMovePanel
+                    selectedProfile={householdProfile}
+                    onProfileChange={setHouseholdProfile}
+                    lever={bestNextMove}
+                    gridSignal={nzData?.gridSignal}
+                />
+            )}
+
             <section className="insight-grid">
                 {actionCards.map((insight) => (
                     <article className="insight-card" key={insight.label}>
@@ -179,27 +201,6 @@ const Dashboard: React.FC = () => {
                     </article>
                 ))}
             </section>
-
-            {nzProfile && (
-                <section className="dashboard-section profile-section">
-                    <div className="section-heading">
-                        <div>
-                            <h2>What matters most in NZ?</h2>
-                            <p>Electricity timing is useful, but Aotearoa&apos;s bigger emissions story sits across agriculture, transport, industry, and waste.</p>
-                        </div>
-                    </div>
-                    <div className="profile-layout">
-                        <ShareList title="Gross emissions by sector" items={nzProfile.sectorShares} labelKey="sector" />
-                        <ShareList title="Gross emissions by gas" items={nzProfile.gasShares} labelKey="gas" />
-                    </div>
-                    <div className="purpose-panel">
-                        <strong>Purpose</strong>
-                        <p>
-                            Use clean-grid windows for flexible electric loads, but treat electrification as the bigger lever: shifting vehicles, heating, and process heat away from fossil fuels matters because electricity is already mostly renewable in New Zealand.
-                        </p>
-                    </div>
-                </section>
-            )}
 
             <section className="dashboard-section planner-section">
                 <div className="section-heading">
@@ -228,6 +229,27 @@ const Dashboard: React.FC = () => {
                 {plannerEstimate && <PlannerResult estimate={plannerEstimate} />}
             </section>
 
+            {nzProfile && (
+                <section className="dashboard-section profile-section">
+                    <div className="section-heading">
+                        <div>
+                            <h2>What matters most in NZ?</h2>
+                            <p>Electricity timing is useful, but Aotearoa&apos;s bigger emissions story sits across agriculture, transport, industry, and waste.</p>
+                        </div>
+                    </div>
+                    <div className="profile-layout">
+                        <ShareList title="Gross emissions by sector" items={nzProfile.sectorShares} labelKey="sector" />
+                        <ShareList title="Gross emissions by gas" items={nzProfile.gasShares} labelKey="gas" />
+                    </div>
+                    <div className="purpose-panel">
+                        <strong>Purpose</strong>
+                        <p>
+                            Use clean-grid windows for flexible electric loads, but treat electrification as the bigger lever: shifting vehicles, heating, and process heat away from fossil fuels matters because electricity is already mostly renewable in New Zealand.
+                        </p>
+                    </div>
+                </section>
+            )}
+
             {nzData && (
                 <section className="detail-grid single">
                     <CountryDetailCard title="Live NZ generation mix" data={nzData} />
@@ -250,6 +272,7 @@ function GridSignalPanel({ data }: { data: EmissionsData }) {
                 <span className="panel-label">Live NZ grid signal</span>
                 <h2>{data.gridSignal || "Checking grid"}</h2>
                 <p>{data.signalReason || "Waiting for enough data to classify the grid."}</p>
+                <SourceBadges badges={getCoverageBadges(data.historyCoverage, data.dataSources)} />
             </div>
             <div className="signal-stats">
                 <Metric label="Carbon" value={`${data.carbonIntensity_gCO2kWh.toFixed(0)} gCO2/kWh`} />
@@ -266,12 +289,61 @@ function NationalSnapshot({ profile }: { profile: NewZealandProfile }) {
             <span className="panel-label">National emissions profile</span>
             <h2>{profile.grossEmissionsMtCO2e.toFixed(1)} Mt CO2e</h2>
             <p>Gross emissions in {profile.year}. Agriculture and energy dominate, while electricity is already mostly renewable.</p>
+            <SourceBadges badges={["Annual profile"]} />
             <div className="snapshot-metrics">
                 <Metric label="Agriculture" value={`${getShare(profile.sectorShares, "Agriculture")}%`} />
                 <Metric label="Energy" value={`${getShare(profile.sectorShares, "Energy")}%`} />
                 <Metric label="Renewable electricity" value={`${profile.electricityRenewableShare2024}%`} />
             </div>
         </article>
+    );
+}
+
+function BestNextMovePanel({
+    selectedProfile,
+    onProfileChange,
+    lever,
+    gridSignal,
+}: {
+    selectedProfile: HouseholdProfileId;
+    onProfileChange: (profile: HouseholdProfileId) => void;
+    lever: HouseholdLever;
+    gridSignal?: string;
+}) {
+    return (
+        <section className="dashboard-section best-next-move" aria-labelledby="best-next-move-title">
+            <div className="section-heading">
+                <div>
+                    <h2 id="best-next-move-title">Best Next Move</h2>
+                    <p>Pick the situation that sounds most like you. This stays deliberately small: one practical direction, not a personal inventory.</p>
+                </div>
+            </div>
+            <div className="profile-chooser" role="group" aria-label="Household situation">
+                {HOUSEHOLD_PROFILES.map((profile) => (
+                    <button
+                        type="button"
+                        key={profile.id}
+                        className={profile.id === selectedProfile ? "active" : ""}
+                        onClick={() => onProfileChange(profile.id)}
+                    >
+                        {profile.label}
+                    </button>
+                ))}
+            </div>
+            <div className="next-move-result">
+                <div>
+                    <span className="panel-label">Recommended first</span>
+                    <h3>{lever.label}</h3>
+                    <p>{lever.summary}</p>
+                </div>
+                <div className="next-move-reason">
+                    <strong>Why this matters</strong>
+                    <p>{lever.whyItMatters}</p>
+                    <strong>Use today&apos;s grid for</strong>
+                    <p>{createGridTimingHint(lever, gridSignal)}</p>
+                </div>
+            </div>
+        </section>
     );
 }
 
@@ -315,6 +387,7 @@ function PlannerResult({ estimate }: { estimate: PlannerEstimate }) {
                     <p>{estimate.recommendation}</p>
                 </div>
             </div>
+            <SourceBadges badges={getCoverageBadges(estimate.historyCoverage, estimate.dataSources)} />
             {(estimate.historyCoverage === "limited" || estimate.historyCoverage === "partial") && estimate.dataNotes && (
                 <p className="planner-note">{estimate.dataNotes}</p>
             )}
@@ -327,6 +400,16 @@ function Metric({ label, value }: { label: string; value: string }) {
         <div className="metric">
             <span>{label}</span>
             <strong>{value}</strong>
+        </div>
+    );
+}
+
+function SourceBadges({ badges }: { badges: string[] }) {
+    if (badges.length === 0) return null;
+
+    return (
+        <div className="source-badges">
+            {badges.map((badge) => <span key={badge}>{badge}</span>)}
         </div>
     );
 }
@@ -352,6 +435,42 @@ function ShareList({ title, items, labelKey }: { title: string; items: ProfileSh
             })}
         </div>
     );
+}
+
+function getBestNextMove(levers: HouseholdLever[], profile: HouseholdProfileId) {
+    return [...levers]
+        .filter((lever) => lever.appliesTo.includes(profile))
+        .sort((left, right) => left.priority - right.priority)[0] || null;
+}
+
+function createGridTimingHint(lever: HouseholdLever, gridSignal?: string) {
+    if (gridSignal === "Use now") {
+        return `${lever.gridTimingRelevance} The live grid signal is favourable right now.`;
+    }
+
+    if (gridSignal === "Avoid peak") {
+        return `${lever.gridTimingRelevance} If the load is discretionary, delay it when that is easy.`;
+    }
+
+    if (gridSignal === "Wait") {
+        return `${lever.gridTimingRelevance} The live grid signal is mixed, so only shift loads that are genuinely flexible.`;
+    }
+
+    return lever.gridTimingRelevance;
+}
+
+function getCoverageBadges(coverage?: string, dataSources: string[] = []) {
+    const badges = ["Live grid"];
+
+    if (coverage === "limited" || coverage === "partial") {
+        badges.push("Limited recent samples");
+    }
+
+    if (dataSources.some((source) => source.includes("Electricity Authority"))) {
+        badges.push("EA dispatch active");
+    }
+
+    return badges;
 }
 
 function buildTodayTake(nz: EmissionsData | null, history: HistoryResponse | null, profile: NewZealandProfile | null) {

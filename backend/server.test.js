@@ -319,6 +319,12 @@ test('new zealand profile endpoint returns official-source summary data', async 
     assert.equal(response.body.electricityRenewableShare2024, 85.5);
     assert.equal(response.body.sectorShares.find((item) => item.sector === 'Agriculture').sharePercentage, 53);
     assert.equal(response.body.gasShares.find((item) => item.gas === 'Methane').sharePercentage, 48);
+    assert.deepEqual(
+        response.body.householdLevers.map((lever) => lever.id),
+        ['transport-electrification', 'home-electrification', 'flexible-load-timing', 'waste-reduction']
+    );
+    assert.deepEqual(response.body.householdLevers.map((lever) => lever.priority), [1, 2, 3, 4]);
+    assert.deepEqual(response.body.householdLevers[0].appliesTo, ['petrol-diesel']);
     assert.deepEqual(response.body.sources, NEW_ZEALAND_PROFILE.sources);
 });
 
@@ -464,6 +470,7 @@ test('planner endpoint includes limited-history note for New Zealand free data',
     assert.equal(response.status, 200);
     assert.equal(response.body.historyCoverage, 'limited');
     assert.match(response.body.dataNotes, /recent-sample comparisons are not forecasts/);
+    assert.deepEqual(response.body.dataSources, ['EM6 free current carbon intensity', 'EM6 free generation quantities']);
     assert.equal(response.body.now.estimatedKgCO2e, 0.8);
     assert.equal(response.body.cleanerWindow.estimatedKgCO2e, 0.4);
 });

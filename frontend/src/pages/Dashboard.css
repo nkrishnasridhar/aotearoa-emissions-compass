@@ -152,7 +152,8 @@
 .panel-label,
 .insight-card span,
 .metric span,
-.planner-result span {
+.planner-result span,
+.source-badges span {
   display: block;
   margin-bottom: 6px;
   color: #657786;
@@ -239,6 +240,27 @@
   line-height: 1.5;
 }
 
+.source-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.source-badges span {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 24px;
+  margin: 0;
+  padding: 0 8px;
+  border: 1px solid #d9e2ec;
+  border-radius: 999px;
+  background: #f7fafc;
+  color: #52616f;
+  font-size: 0.7rem;
+}
+
 .insight-grid {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   margin-bottom: 16px;
@@ -251,6 +273,72 @@
 .dashboard-section {
   margin-bottom: 16px;
   padding: 20px;
+}
+
+.best-next-move {
+  border-left: 5px solid #24536b;
+}
+
+.profile-chooser {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.profile-chooser button {
+  min-height: 38px;
+  border: 1px solid #bac8d3;
+  border-radius: 999px;
+  padding: 0 13px;
+  background: #ffffff;
+  color: #16202a;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.profile-chooser button:hover,
+.profile-chooser button.active {
+  border-color: #1f7a63;
+  background: #e8f4ef;
+  color: #1f5f4f;
+}
+
+.next-move-result {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.8fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.next-move-result h3 {
+  margin: 0;
+  color: #16202a;
+  font-size: 1.3rem;
+}
+
+.next-move-result p,
+.next-move-reason p {
+  margin: 8px 0 0;
+  color: #52616f;
+  line-height: 1.45;
+}
+
+.next-move-reason {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border: 1px solid #d9e2ec;
+  border-radius: 8px;
+  background: #f7fafc;
+}
+
+.next-move-reason strong {
+  color: #24536b;
+}
+
+.next-move-reason p + strong {
+  margin-top: 8px;
 }
 
 .section-heading {
@@ -489,6 +577,7 @@
   .today-take,
   .detail-grid,
   .planner-result,
+  .next-move-result,
   .profile-layout {
     grid-template-columns: 1fr;
   }
@@ -595,6 +684,8 @@
   .today-take p,
   .insight-card p,
   .planner-result p,
+  .next-move-result p,
+  .next-move-reason p,
   .share-row p,
   .purpose-panel p {
     font-size: 0.9rem;
@@ -615,6 +706,7 @@
   .metric span,
   .insight-card span,
   .planner-result span,
+  .source-badges span,
   .panel-label {
     font-size: 0.68rem;
   }
@@ -642,6 +734,24 @@
 
   .planner-form {
     gap: 10px;
+  }
+
+  .profile-chooser {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .profile-chooser button {
+    width: 100%;
+  }
+
+  .next-move-result h3 {
+    font-size: 1.12rem;
+  }
+
+  .next-move-reason {
+    padding: 12px;
   }
 
   .planner-form input,

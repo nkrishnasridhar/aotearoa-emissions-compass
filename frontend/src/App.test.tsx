@@ -75,6 +75,44 @@ const profile = {
     },
   ],
   electricityRenewableShare2024: 85.5,
+  householdLevers: [
+    {
+      id: 'transport-electrification',
+      label: 'Electrify transport',
+      priority: 1,
+      appliesTo: ['petrol-diesel'],
+      summary: 'Shift petrol or diesel kilometres to an EV when a vehicle is due for replacement.',
+      whyItMatters: 'Road transport is a practical household-facing part of the energy sector.',
+      gridTimingRelevance: 'Use the live grid signal to time EV charging after the bigger decision to electrify.',
+    },
+    {
+      id: 'home-electrification',
+      label: 'Replace gas or LPG at home',
+      priority: 2,
+      appliesTo: ['gas-lpg'],
+      summary: 'Consider efficient electric water heating, cooking, and space heating.',
+      whyItMatters: 'Switching end uses away from fossil fuels can matter more than small timing changes.',
+      gridTimingRelevance: 'Use the grid signal for flexible heating or hot-water timing.',
+    },
+    {
+      id: 'flexible-load-timing',
+      label: 'Time flexible electric loads',
+      priority: 3,
+      appliesTo: ['mostly-electric', 'petrol-diesel', 'gas-lpg'],
+      summary: 'Shift EV charging, laundry, dishwashing, and other flexible loads.',
+      whyItMatters: 'Timing trims the footprint of electricity use after larger choices.',
+      gridTimingRelevance: 'Use the live signal and Flexible Load Check.',
+    },
+    {
+      id: 'waste-reduction',
+      label: 'Reduce organic waste',
+      priority: 4,
+      appliesTo: ['mostly-electric'],
+      summary: 'Cut avoidable food waste and keep organic waste out of landfill.',
+      whyItMatters: 'Landfill methane is a practical household-facing lever.',
+      gridTimingRelevance: 'This lever is not grid-timed.',
+    },
+  ],
   sources: [],
   notes: 'Sector and gas shares are rounded public-summary values.',
 };
@@ -102,6 +140,7 @@ beforeEach(() => {
     },
     savingsKgCO2e: 0.02,
     recommendation: 'Run it now if it suits you. Timing this load is not the main emissions lever today.',
+    dataSources: ['EM6 free current carbon intensity', 'EM6 free generation quantities'],
     historyCoverage: 'limited',
     dataNotes: 'EM6 free carbon feed provides the last three trading periods; recent-sample comparisons are not forecasts.',
   });
@@ -119,6 +158,8 @@ test('renders the Aotearoa Emissions Compass dashboard', async () => {
   expect(screen.getByText(/National emissions profile/i)).toBeInTheDocument();
   expect(screen.getByText(/75.8 Mt CO2e/i)).toBeInTheDocument();
   expect(screen.getByText(/Today's take/i)).toBeInTheDocument();
+  expect(screen.getByText(/Best Next Move/i)).toBeInTheDocument();
+  expect(screen.getByText(/Electrify transport/i)).toBeInTheDocument();
   expect(screen.getByText(/Flexible electricity use is fine now/i)).toBeInTheDocument();
   expect(screen.getByText(/Biggest NZ source/i)).toBeInTheDocument();
   expect(screen.getByText(/Biggest practical household lever/i)).toBeInTheDocument();
@@ -127,9 +168,25 @@ test('renders the Aotearoa Emissions Compass dashboard', async () => {
   expect(screen.getByText(/What matters most in NZ/i)).toBeInTheDocument();
   expect(screen.getByText(/Flexible Load Check/i)).toBeInTheDocument();
   expect(screen.getByText(/Live NZ generation mix/i)).toBeInTheDocument();
+  expect(screen.getAllByText(/Live grid/i).length).toBeGreaterThan(0);
+  expect(screen.getAllByText(/Limited recent samples/i).length).toBeGreaterThan(0);
+  expect(screen.getByText(/Annual profile/i)).toBeInTheDocument();
   expect(screen.queryByText(new RegExp(['Recent NZ Grid', 'Trend'].join(' '), 'i'))).not.toBeInTheDocument();
   expect(screen.queryByText(new RegExp(['Activity', 'Planner'].join(' '), 'i'))).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: /Estimate/i })).toBeInTheDocument();
+});
+
+test('updates the best next move for each household situation', async () => {
+  render(<App />);
+
+  expect(await screen.findByText(/Best Next Move/i)).toBeInTheDocument();
+  expect(screen.getByText(/Electrify transport/i)).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole('button', { name: /I use gas\/LPG at home/i }));
+  expect(screen.getByRole('heading', { name: /Replace gas or LPG at home/i })).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole('button', { name: /Mostly electric already/i }));
+  expect(screen.getByRole('heading', { name: /Time flexible electric loads/i })).toBeInTheDocument();
 });
 
 test('removes legacy comparison UI from the user-facing experience', async () => {
@@ -191,5 +248,6 @@ test('renders limited NZ history with Electricity Authority latest dispatch acti
 
   expect(await screen.findByText(/Live NZ grid signal/i)).toBeInTheDocument();
   expect(screen.getByText(/Flexible-load saving/i)).toBeInTheDocument();
+  expect(screen.getAllByText(/EA dispatch active/i).length).toBeGreaterThan(0);
   expect(screen.queryByText(new RegExp(['Recent NZ Grid', 'Trend'].join(' '), 'i'))).not.toBeInTheDocument();
 });

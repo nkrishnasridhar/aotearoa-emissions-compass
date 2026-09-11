@@ -66,6 +66,44 @@ const NEW_ZEALAND_PROFILE = {
         },
     ],
     electricityRenewableShare2024: 85.5,
+    householdLevers: [
+        {
+            id: 'transport-electrification',
+            label: 'Electrify transport',
+            priority: 1,
+            appliesTo: ['petrol-diesel'],
+            summary: 'When a vehicle is due for replacement, shifting petrol or diesel kilometres to an EV can use New Zealand electricity instead of imported liquid fuels.',
+            whyItMatters: 'Energy is 38% of gross emissions, and road transport is one of the most practical household-facing parts of that sector.',
+            gridTimingRelevance: 'If you can charge at home, use the live grid signal to time EV charging after the bigger decision to electrify.',
+        },
+        {
+            id: 'home-electrification',
+            label: 'Replace gas or LPG at home',
+            priority: 2,
+            appliesTo: ['gas-lpg'],
+            summary: 'When appliances reach end of life, consider efficient electric water heating, cooking, and space heating instead of fossil gas or LPG.',
+            whyItMatters: 'New Zealand electricity is already mostly renewable, so switching end uses away from fossil fuels can matter more than small timing changes.',
+            gridTimingRelevance: 'Use the grid signal for flexible heating or hot-water timing when comfort and household routines allow.',
+        },
+        {
+            id: 'flexible-load-timing',
+            label: 'Time flexible electric loads',
+            priority: 3,
+            appliesTo: ['mostly-electric', 'petrol-diesel', 'gas-lpg'],
+            summary: 'Shift EV charging, laundry, dishwashing, and other flexible loads when the live grid signal is cleaner.',
+            whyItMatters: 'Timing trims the footprint of electricity use, but it is best treated as an optimisation after larger fuel-switching choices.',
+            gridTimingRelevance: 'Use the live signal and Flexible Load Check; recent samples are context, not a forecast.',
+        },
+        {
+            id: 'waste-reduction',
+            label: 'Reduce organic waste',
+            priority: 4,
+            appliesTo: ['mostly-electric'],
+            summary: 'Cut avoidable food waste and keep organic waste out of landfill where local services make that possible.',
+            whyItMatters: 'Waste is a smaller national slice than agriculture or energy, but landfill methane is still a practical household-facing lever.',
+            gridTimingRelevance: 'This lever is not grid-timed; use the live grid for flexible electric loads separately.',
+        },
+    ],
     sources: [
         {
             name: 'Ministry for the Environment: New Zealand greenhouse gas inventory 1990-2024 snapshot',
@@ -558,6 +596,7 @@ function createPlannerEstimate(country, kWh, durationHours, currentRecord, histo
         durationHours,
         dataNotes: currentRecord.dataNotes || recentBestSample.dataNotes,
         historyCoverage: currentRecord.historyCoverage || recentBestSample.historyCoverage,
+        dataSources: currentRecord.dataSources || recentBestSample.dataSources,
         now: {
             timestamp: currentRecord.timestamp,
             carbonIntensity_gCO2kWh: currentRecord.carbonIntensity_gCO2kWh,

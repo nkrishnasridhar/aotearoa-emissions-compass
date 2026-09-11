@@ -1,15 +1,16 @@
 # Aotearoa Emissions Compass
 
-A New Zealand-focused emissions dashboard for understanding where emissions matter nationally, and what today's electricity grid means for flexible household energy use.
+A New Zealand-focused emissions decision tool for understanding where emissions matter nationally, which household lever to consider first, and what today's electricity grid means for flexible energy use.
 
 ## Overview
 
 The dashboard answers two practical questions:
 
 - **Where do emissions matter in Aotearoa New Zealand?**
+- **What practical household lever should I consider first?**
 - **Is now a good time to run flexible electric loads?**
 
-New Zealand's electricity grid is already mostly renewable, so a simple country comparison does not create much insight. This pivot reframes the project around NZ's actual emissions profile: agriculture and energy dominate gross emissions, while clean electricity creates an opportunity to electrify transport, heating, and process heat.
+New Zealand's electricity grid is already mostly renewable, so the useful question is not whether NZ looks clean beside someone else. This project focuses on NZ's actual emissions profile: agriculture and energy dominate gross emissions, while clean electricity creates an opportunity to electrify transport, heating, and process heat.
 
 The app shows:
 
@@ -17,6 +18,7 @@ The app shows:
 - Current NZ generation mix by fuel type
 - Renewable share, total demand, data freshness, and confidence
 - `Use now`, `Wait`, or `Avoid peak` grid timing signal
+- A compact Best Next Move recommendation for petrol/diesel drivers, gas/LPG households, or mostly-electric households
 - Estimated emissions for flexible loads such as EV charging, laundry, dishwashers, and heat pumps
 - Best recent NZ electricity sample for context, not forecasting
 - National NZ emissions profile by sector and gas
@@ -47,6 +49,7 @@ Current v1 profile figures:
 - Sector split: agriculture `53%`, energy `38%`, industrial processes and product use `6%`, waste `3%`
 - Gas split: methane `48%`, carbon dioxide `41%`, nitrous oxide `9%`, fluorinated gases `2%`
 - 2024 electricity generation from renewable sources: `85.5%`
+- Household levers: transport electrification, home gas/LPG replacement, flexible-load timing, and organic waste reduction
 
 ## Architecture
 
@@ -64,7 +67,7 @@ Current v1 profile figures:
 - **API endpoints**:
   - `GET /api/emissions/new-zealand` - Returns current NZ live grid signal and generation mix
   - `GET /api/emissions/new-zealand/history?hours=24` - Returns recent NZ carbon samples and the best recent sample
-  - `GET /api/emissions/new-zealand/profile` - Returns static official-source NZ emissions profile context
+  - `GET /api/emissions/new-zealand/profile` - Returns static official-source NZ emissions profile context and ordered household levers
   - `POST /api/planner/estimate` - Estimates emissions for a selected NZ electricity activity
   - `GET /health` - Health check and provider configuration status
 
@@ -133,6 +136,16 @@ kWh * carbon intensity gCO2/kWh / 1000 = kg CO2e
 ```
 
 It compares running now with the best recent NZ sample. Because free NZ carbon history is limited, the planner clearly displays data coverage notes and avoids presenting recent samples as a forecast.
+
+### Best Next Move
+
+The Best Next Move panel is intentionally lightweight. It asks for one broad household situation and recommends the highest-priority static lever from the NZ profile data:
+
+- petrol/diesel driving: consider transport electrification first
+- gas/LPG at home: consider efficient electric replacement at end of life
+- mostly electric already: use flexible-load timing as the next optimisation
+
+It does not estimate personal annual emissions or replace detailed household advice.
 
 ### National Context
 

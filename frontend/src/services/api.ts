@@ -81,6 +81,18 @@ export interface ProfileSource {
     url: string;
 }
 
+export type HouseholdProfileId = 'petrol-diesel' | 'gas-lpg' | 'mostly-electric';
+
+export interface HouseholdLever {
+    id: string;
+    label: string;
+    priority: number;
+    appliesTo: HouseholdProfileId[];
+    summary: string;
+    whyItMatters: string;
+    gridTimingRelevance: string;
+}
+
 export interface NewZealandProfile {
     country: string;
     year: number;
@@ -88,6 +100,7 @@ export interface NewZealandProfile {
     sectorShares: ProfileShare[];
     gasShares: ProfileShare[];
     electricityRenewableShare2024: number;
+    householdLevers: HouseholdLever[];
     sources: ProfileSource[];
     notes: string;
 }
@@ -116,6 +129,7 @@ export interface PlannerEstimate {
     };
     savingsKgCO2e: number;
     recommendation: string;
+    dataSources?: string[];
     dataNotes?: string;
     historyCoverage?: 'limited' | 'partial' | 'full';
 }

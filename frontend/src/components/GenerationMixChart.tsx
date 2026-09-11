@@ -2,38 +2,24 @@ import React, { useEffect, useState } from "react";
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { GenerationMix } from "../services/api";
 
-/**
- * Props for the GenerationMixChart component.
- */
 interface GenerationMixChartProps {
-    data: GenerationMix; 
+    data: GenerationMix;
 }
 
-/**
- * Color mapping for different fuel types.
- * Renewable sources are assigned distinct colors for clarity.
- */
 const FUEL_COLORS: { [key: string]: string } = {
-    hydro: "#4299E1",      // Blue
-    wind: "#48BB78",       // Green
-    solar: "#F6AD55",      // Orange
-    geothermal: "#9F7AEA", // Purple
-    gas: "#ED8936",        // Dark orange
-    coal: "#718096",       // Gray
-    other: "#A0AEC0",      // Light gray
+    hydro: "#4299E1",
+    wind: "#48BB78",
+    solar: "#F6AD55",
+    geothermal: "#9F7AEA",
+    gas: "#ED8936",
+    coal: "#718096",
+    other: "#A0AEC0",
 };
 
 function isCompactViewport() {
     return Boolean(window.matchMedia?.("(max-width: 680px)")?.matches);
 }
 
-/**
- * A pie chart component for visualizing electricity generation mix by fuel type.
- *
- * @component
- * @param data - The fuel type data in MW for a specific region or country
- * @returns A responsive pie chart showing the proportion of each generation source
- */
 const GenerationMixChart: React.FC<GenerationMixChartProps> = ({ data }) => {
     const [isCompact, setIsCompact] = useState(isCompactViewport);
 
@@ -56,11 +42,6 @@ const GenerationMixChart: React.FC<GenerationMixChartProps> = ({ data }) => {
         return sum;
     }, 0);
 
-    
-    /**
-     * Transforms the raw generation data into a format suitable for Recharts.
-     * Filters out undefined or < 0.1% values, capitalizes names, and sorts by value.
-     */
     const chartData = Object.entries(data)
         .filter(([_, value]) => value !== undefined && value > 0)
         .map(([name, value]) => ({
@@ -71,28 +52,23 @@ const GenerationMixChart: React.FC<GenerationMixChartProps> = ({ data }) => {
         .filter(entry => (entry.value / totalValue) * 100 >= 0.1)
         .sort((a, b) => b.value - a.value);
 
-    // Fallback UI when no data is available
     if (chartData.length === 0) {
         return (
-            <div style={{ textAlign: 'center', padding: '20px', color: '#999' }}>
+            <div className="chart-empty">
                 No generation data available
             </div>
         );
     }
 
-    /**
-     * Custom tooltip renderer for Recharts PieChart.
-     * Displays the name, value in MW, and percentage share.
-     */
     const CustomTooltip = ({ active, payload }: any) => {
         if (active && payload && payload.length) {
             const entry = payload[0];
             const total = chartData.reduce((sum, item) => sum + item.value, 0);
             const percent = total > 0 ? (entry.value / total) * 100 : 0;
             return (
-                <div style={{backgroundColor: 'white', padding: '10px', border: '1px solid #ccc', borderRadius: '4px'}}>
-                    <p style={{ margin: 0, fontWeight: 'bold' }}>{entry.name}</p>
-                    <p style={{ margin: '5px 0 0 0' }}>{entry.value.toLocaleString()} MW ({percent.toFixed(1)}%)</p>
+                <div className="chart-tooltip">
+                    <p><strong>{entry.name}</strong></p>
+                    <p>{entry.value.toLocaleString()} MW ({percent.toFixed(1)}%)</p>
                 </div>
             );
         }
@@ -123,7 +99,9 @@ const GenerationMixChart: React.FC<GenerationMixChartProps> = ({ data }) => {
             <Legend 
                 verticalAlign="bottom" 
                 height={isCompact ? 64 : 36}
-                formatter={(value, entry: any) => `${value}: ${entry.payload.value} MW`}
+                formatter={(value, entry: any) => (
+                    <span className="chart-legend-label">{value}: {entry.payload.value} MW</span>
+                )}
             />
         </PieChart>
         </ResponsiveContainer>

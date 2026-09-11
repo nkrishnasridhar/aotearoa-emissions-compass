@@ -4,13 +4,13 @@ A New Zealand-focused emissions decision tool for understanding where emissions 
 
 ## Overview
 
-The dashboard answers two practical questions:
+The dashboard answers three practical questions:
 
 - **Where do emissions matter in Aotearoa New Zealand?**
 - **What practical household lever should I consider first?**
 - **Is now a good time to run flexible electric loads?**
 
-New Zealand's electricity grid is already mostly renewable, so the useful question is not whether NZ looks clean beside someone else. This project focuses on NZ's actual emissions profile: agriculture and energy dominate gross emissions, while clean electricity creates an opportunity to electrify transport, heating, and process heat.
+New Zealand's electricity grid is already mostly renewable, so the useful question is not whether NZ looks clean beside someone else. This project focuses on NZ's actual emissions profile: agriculture and energy dominate gross emissions, while clean electricity creates an opportunity to electrify more transport, heating, and industrial process heat.
 
 The app shows:
 
@@ -31,7 +31,7 @@ The app shows:
 New Zealand live electricity data uses a free-first provider approach:
 
 - EM6 free current carbon intensity
-- EM6 free generation quantities
+- EM6 free current generation quantities
 - Optional Electricity Authority real-time dispatch demand and generation snapshot
 
 The free EM6 carbon feed provides only the last three trading periods, so 24-hour NZ carbon history is marked as limited unless a richer provider is added later. The optional Electricity Authority integration improves the latest demand and generation snapshot, but it does not provide a full carbon-intensity history.
@@ -41,11 +41,11 @@ The free EM6 carbon feed provides only the last three trading periods, so 24-hou
 The static NZ profile endpoint uses rounded public-summary figures from official sources:
 
 - Ministry for the Environment: New Zealand's Greenhouse Gas Inventory 1990-2024 snapshot
-- MBIE: Energy in New Zealand 2025, electricity
+- Ministry of Business, Innovation and Employment (MBIE): Energy in New Zealand 2025, electricity
 
 Current v1 profile figures:
 
-- 2024 gross emissions: `75.8 Mt CO2e`
+- 2024 gross emissions: `75.8 Mt CO2e` excluding land-use, land-use change, and forestry removals
 - Sector split: agriculture `53%`, energy `38%`, industrial processes and product use `6%`, waste `3%`
 - Gas split: methane `48%`, carbon dioxide `41%`, nitrous oxide `9%`, fluorinated gases `2%`
 - 2024 electricity generation from renewable sources: `85.5%`
@@ -75,7 +75,7 @@ Current v1 profile figures:
 
 ### Prerequisites
 
-- Node.js v14 or higher
+- Node.js v18 or higher
 - npm or yarn
 
 ### 1. Install and start the backend
@@ -86,7 +86,7 @@ npm install
 npm start
 ```
 
-Optional NZ real-time dispatch settings can be added if you have a registered free Electricity Authority API subscription:
+Optional NZ real-time dispatch settings can be added if you have an Electricity Authority EMI API subscription:
 
 ```bash
 NZ_REALTIME_PROVIDER=ea
@@ -97,7 +97,7 @@ EA_REALTIME_DISPATCH_PATH=/real-time-dispatch/
 
 The backend starts on `http://localhost:5000`.
 
-Useful local checks:
+Useful local URLs:
 
 ```bash
 http://localhost:5000/health
@@ -141,7 +141,7 @@ It compares running now with the best recent NZ sample. Because free NZ carbon h
 
 The Best Next Move panel is intentionally lightweight. It asks for one broad household situation and recommends the highest-priority static lever from the NZ profile data:
 
-- petrol/diesel driving: consider transport electrification first
+- petrol/diesel driving: consider transport electrification first where practical
 - gas/LPG at home: consider efficient electric replacement at end of life
 - mostly electric already: use flexible-load timing as the next optimisation
 

@@ -2,6 +2,7 @@
 
 const DEFAULT_PRODUCTION_BACKEND_URL = 'https://emissions-dashboard-phi.vercel.app';
 const LOCAL_BACKEND_URL = 'http://localhost:5000';
+const REQUEST_TIMEOUT_MS = 12000;
 const BACKEND_URL = getBackendUrl();
 
 function getBackendUrl(): string {
@@ -157,13 +158,23 @@ export async function estimateActivity(input: PlannerInput): Promise<PlannerEsti
 }
 
 async function requestJson<T>(path: string, options?: RequestInit): Promise<T> {
-    const response = await fetch(`${BACKEND_URL}${path}`, options);
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
-    if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+    try {
+        const response = await fetch(`${BACKEND_URL}${path}`, {
+            ...options,
+            signal: controller.signal,
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        return response.json();
+    } finally {
+        window.clearTimeout(timeoutId);
     }
-
-    return response.json();
 }
 
 export function calculateRenewablePercentage(mix: GenerationMix): number {

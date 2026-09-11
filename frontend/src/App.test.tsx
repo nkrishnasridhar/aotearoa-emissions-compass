@@ -118,6 +118,7 @@ const profile = {
 };
 
 beforeEach(() => {
+  window.localStorage.clear();
   jest.clearAllMocks();
   (fetchNewZealandData as jest.Mock).mockResolvedValue(currentNz);
   (fetchNewZealandHistory as jest.Mock).mockResolvedValue(history);
@@ -155,6 +156,7 @@ test('renders the Aotearoa Emissions Compass dashboard', async () => {
   await waitFor(() => expect(fetchNewZealandProfile).toHaveBeenCalled());
 
   expect(screen.getByText(/Aotearoa emissions compass/i)).toBeInTheDocument();
+  expect(screen.getByText(/A NZ emissions compass for choosing the bigger lever first/i)).toBeInTheDocument();
   expect(screen.getByText(/National emissions profile/i)).toBeInTheDocument();
   expect(screen.getByText(/75.8 Mt CO2e/i)).toBeInTheDocument();
   expect(screen.getByText(/Today's take/i)).toBeInTheDocument();
@@ -170,10 +172,36 @@ test('renders the Aotearoa Emissions Compass dashboard', async () => {
   expect(screen.getByText(/Live NZ generation mix/i)).toBeInTheDocument();
   expect(screen.getAllByText(/Live grid/i).length).toBeGreaterThan(0);
   expect(screen.getAllByText(/Limited recent samples/i).length).toBeGreaterThan(0);
-  expect(screen.getByText(/Annual profile/i)).toBeInTheDocument();
+  expect(screen.getAllByText(/Annual profile/i).length).toBeGreaterThan(0);
+  expect(screen.getByRole('button', { name: /Switch to dark mode/i })).toBeInTheDocument();
+  expect(screen.getByText(/Data Sources/i)).toBeInTheDocument();
   expect(screen.queryByText(new RegExp(['Recent NZ Grid', 'Trend'].join(' '), 'i'))).not.toBeInTheDocument();
   expect(screen.queryByText(new RegExp(['Activity', 'Planner'].join(' '), 'i'))).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: /Estimate/i })).toBeInTheDocument();
+});
+
+test('toggles and persists the dashboard theme', async () => {
+  const { container } = render(<App />);
+
+  expect(await screen.findByText(/Where do emissions matter in New Zealand/i)).toBeInTheDocument();
+  const dashboard = container.querySelector('.dashboard-container');
+
+  expect(dashboard).toHaveAttribute('data-theme', 'light');
+
+  fireEvent.click(screen.getByRole('button', { name: /Switch to dark mode/i }));
+
+  expect(dashboard).toHaveAttribute('data-theme', 'dark');
+  expect(window.localStorage.getItem('aotearoa-theme')).toBe('dark');
+  expect(screen.getByRole('button', { name: /Switch to light mode/i })).toBeInTheDocument();
+});
+
+test('loads a saved theme preference', async () => {
+  window.localStorage.setItem('aotearoa-theme', 'dark');
+  const { container } = render(<App />);
+
+  expect(await screen.findByText(/Where do emissions matter in New Zealand/i)).toBeInTheDocument();
+
+  expect(container.querySelector('.dashboard-container')).toHaveAttribute('data-theme', 'dark');
 });
 
 test('updates the best next move for each household situation', async () => {
@@ -187,6 +215,20 @@ test('updates the best next move for each household situation', async () => {
 
   fireEvent.click(screen.getByRole('button', { name: /Mostly electric already/i }));
   expect(screen.getByRole('heading', { name: /Time flexible electric loads/i })).toBeInTheDocument();
+});
+
+test('renders partial data when the live grid request fails', async () => {
+  const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+  (fetchNewZealandData as jest.Mock).mockRejectedValue(new Error('upstream unavailable'));
+
+  render(<App />);
+
+  expect(await screen.findByText(/Live grid unavailable/i)).toBeInTheDocument();
+  expect(screen.getByText(/National emissions profile/i)).toBeInTheDocument();
+  expect(screen.getByText(/New Zealand live grid data is temporarily unavailable/i)).toBeInTheDocument();
+  expect(screen.getByText(/Best Next Move/i)).toBeInTheDocument();
+
+  consoleError.mockRestore();
 });
 
 test('removes legacy comparison UI from the user-facing experience', async () => {

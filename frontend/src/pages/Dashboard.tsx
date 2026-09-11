@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { Compass, Info, Moon, RefreshCw, Sun, Target, Zap } from "lucide-react";
 import GenerationMixChart from "../components/GenerationMixChart";
 import {
     calculateRenewablePercentage,
@@ -31,11 +32,14 @@ const HOUSEHOLD_PROFILES: Array<{ id: HouseholdProfileId; label: string }> = [
     { id: "mostly-electric", label: "Mostly electric already" },
 ];
 
+type ThemeName = "light" | "dark";
+
 interface PlannerState extends PlannerInput {
     activity: string;
 }
 
 const Dashboard: React.FC = () => {
+    const [theme, setTheme] = useState<ThemeName>(getInitialTheme);
     const [nzData, setNzData] = useState<EmissionsData | null>(null);
     const [nzHistory, setNzHistory] = useState<HistoryResponse | null>(null);
     const [nzProfile, setNzProfile] = useState<NewZealandProfile | null>(null);
@@ -104,6 +108,23 @@ const Dashboard: React.FC = () => {
         [nzProfile, householdProfile]
     );
 
+    useEffect(() => {
+        document.body.dataset.theme = theme;
+        try {
+            window.localStorage.setItem("aotearoa-theme", theme);
+        } catch {
+            // Ignore storage failures; the active theme still applies for this session.
+        }
+
+        return () => {
+            delete document.body.dataset.theme;
+        };
+    }, [theme]);
+
+    const handleThemeToggle = () => {
+        setTheme((current) => current === "dark" ? "light" : "dark");
+    };
+
     const handleActivityChange = (activity: string) => {
         const selected = ACTIVITIES.find((item) => item.label === activity) || ACTIVITIES[0];
         setPlanner((current) => ({
@@ -136,20 +157,20 @@ const Dashboard: React.FC = () => {
 
     if (loading && !nzData && !nzProfile) {
         return (
-            <div className="dashboard-container">
+            <div className="dashboard-container" data-theme={theme}>
                 <div className="loading">Loading Aotearoa emissions signals...</div>
             </div>
         );
     }
 
     return (
-        <div className="dashboard-container">
+        <div className="dashboard-container" data-theme={theme}>
             <header className="dashboard-header">
                 <div>
                     <p className="eyebrow">Aotearoa emissions compass</p>
                     <h1>Where do emissions matter in New Zealand?</h1>
                     <p className="header-copy">
-                        Choose the bigger lever first, then use today&apos;s grid to time flexible electric loads.
+                        A NZ emissions compass for choosing the bigger lever first, then timing flexible electric loads.
                     </p>
                 </div>
                 <div className="header-controls">
@@ -158,8 +179,13 @@ const Dashboard: React.FC = () => {
                             Refreshed {formatRelativeMinutes(lastUpdated)}
                         </span>
                     )}
-                    <button onClick={fetchData} disabled={loading} className="refresh-button">
-                        {loading ? "Refreshing" : "Refresh"}
+                    <button onClick={handleThemeToggle} className="icon-button" aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}>
+                        {theme === "dark" ? <Sun size={16} aria-hidden="true" /> : <Moon size={16} aria-hidden="true" />}
+                        <span>{theme === "dark" ? "Light" : "Dark"}</span>
+                    </button>
+                    <button onClick={fetchData} disabled={loading} className="icon-button refresh-button">
+                        <RefreshCw size={16} aria-hidden="true" />
+                        <span>{loading ? "Refreshing" : "Refresh"}</span>
                     </button>
                 </div>
             </header>
@@ -171,8 +197,16 @@ const Dashboard: React.FC = () => {
             )}
 
             <section className="signal-grid nz-focus-grid">
-                {nzData && <GridSignalPanel data={nzData} />}
-                {nzProfile && <NationalSnapshot profile={nzProfile} />}
+                {nzData ? (
+                    <GridSignalPanel data={nzData} />
+                ) : (
+                    <EmptyPanel title="Live grid unavailable" detail="The live NZ electricity feed is not responding right now. National context and source notes remain available when loaded." />
+                )}
+                {nzProfile ? (
+                    <NationalSnapshot profile={nzProfile} />
+                ) : (
+                    <EmptyPanel title="National profile unavailable" detail="The static NZ emissions profile could not be loaded. Live grid timing can still work independently." />
+                )}
             </section>
 
             <section className="today-take" aria-labelledby="today-take-title">
@@ -205,7 +239,7 @@ const Dashboard: React.FC = () => {
             <section className="dashboard-section planner-section">
                 <div className="section-heading">
                     <div>
-                        <h2>Flexible Load Check</h2>
+                        <h2><Zap size={18} aria-hidden="true" /> Flexible Load Check</h2>
                         <p>Estimate the impact of running a flexible electric load now, then compare it with the best recent NZ sample. It is context, not a forecast.</p>
                     </div>
                 </div>
@@ -256,6 +290,20 @@ const Dashboard: React.FC = () => {
                 </section>
             )}
 
+            <section className="dashboard-section data-source-section">
+                <div className="section-heading compact-heading">
+                    <div>
+                        <h2><Info size={18} aria-hidden="true" /> Data Sources</h2>
+                        <p>Live grid readings are operational signals; national emissions figures are annual context.</p>
+                    </div>
+                </div>
+                <div className="source-summary-grid">
+                    <SourceSummary title="Live grid" detail="EM6 supplies current carbon intensity and generation mix. Electricity Authority dispatch can improve the latest demand and generation snapshot when configured." />
+                    <SourceSummary title="Limited recent samples" detail="The free EM6 feed only exposes a few recent carbon samples, so the app does not present forecasts or trend claims." />
+                    <SourceSummary title="Annual profile" detail="National sector, gas, and renewable-electricity figures use rounded public-summary values from MfE and MBIE." />
+                </div>
+            </section>
+
             <footer className="dashboard-footer">
                 <p>Live grid sources: EM6 API + optional Electricity Authority dispatch</p>
                 {nzProfile && <p>National profile sources: MfE greenhouse gas inventory and MBIE Energy in New Zealand 2025</p>}
@@ -270,7 +318,7 @@ function GridSignalPanel({ data }: { data: EmissionsData }) {
         <article className={`signal-panel ${getSignalClass(data.gridSignal)}`}>
             <div>
                 <span className="panel-label">Live NZ grid signal</span>
-                <h2>{data.gridSignal || "Checking grid"}</h2>
+                <h2><Zap size={20} aria-hidden="true" /> {data.gridSignal || "Checking grid"}</h2>
                 <p>{data.signalReason || "Waiting for enough data to classify the grid."}</p>
                 <SourceBadges badges={getCoverageBadges(data.historyCoverage, data.dataSources)} />
             </div>
@@ -287,7 +335,7 @@ function NationalSnapshot({ profile }: { profile: NewZealandProfile }) {
     return (
         <article className="national-snapshot">
             <span className="panel-label">National emissions profile</span>
-            <h2>{profile.grossEmissionsMtCO2e.toFixed(1)} Mt CO2e</h2>
+            <h2><Compass size={20} aria-hidden="true" /> {profile.grossEmissionsMtCO2e.toFixed(1)} Mt CO2e</h2>
             <p>Gross emissions in {profile.year}. Agriculture and energy dominate, while electricity is already mostly renewable.</p>
             <SourceBadges badges={["Annual profile"]} />
             <div className="snapshot-metrics">
@@ -333,7 +381,7 @@ function BestNextMovePanel({
             <div className="next-move-result">
                 <div>
                     <span className="panel-label">Recommended first</span>
-                    <h3>{lever.label}</h3>
+                    <h3><Target size={18} aria-hidden="true" /> {lever.label}</h3>
                     <p>{lever.summary}</p>
                 </div>
                 <div className="next-move-reason">
@@ -411,6 +459,25 @@ function SourceBadges({ badges }: { badges: string[] }) {
         <div className="source-badges">
             {badges.map((badge) => <span key={badge}>{badge}</span>)}
         </div>
+    );
+}
+
+function SourceSummary({ title, detail }: { title: string; detail: string }) {
+    return (
+        <article className="source-summary">
+            <strong>{title}</strong>
+            <p>{detail}</p>
+        </article>
+    );
+}
+
+function EmptyPanel({ title, detail }: { title: string; detail: string }) {
+    return (
+        <article className="empty-panel">
+            <Info size={20} aria-hidden="true" />
+            <strong>{title}</strong>
+            <p>{detail}</p>
+        </article>
     );
 }
 
@@ -576,6 +643,17 @@ function formatRelativeMinutes(date: Date) {
     if (minutes === 0) return "just now";
     if (minutes === 1) return "1 minute ago";
     return `${minutes} minutes ago`;
+}
+
+function getInitialTheme(): ThemeName {
+    try {
+        const savedTheme = window.localStorage.getItem("aotearoa-theme");
+        if (savedTheme === "light" || savedTheme === "dark") return savedTheme;
+    } catch {
+        // Fall back to the system preference if storage is unavailable.
+    }
+
+    return window.matchMedia?.("(prefers-color-scheme: dark)")?.matches ? "dark" : "light";
 }
 
 export default Dashboard;

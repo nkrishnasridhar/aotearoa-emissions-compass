@@ -119,10 +119,10 @@ test('renders the Aotearoa Emissions Compass dashboard', async () => {
   expect(screen.getByText(/National emissions profile/i)).toBeInTheDocument();
   expect(screen.getByText(/75.8 Mt CO2e/i)).toBeInTheDocument();
   expect(screen.getByText(/What matters most in NZ/i)).toBeInTheDocument();
-  expect(screen.getByText(/Recent NZ Grid Trend/i)).toBeInTheDocument();
+  expect(screen.getByText(/Best flexible-load window/i)).toBeInTheDocument();
   expect(screen.getByText(/Activity Planner/i)).toBeInTheDocument();
   expect(screen.getByText(/Live NZ generation mix/i)).toBeInTheDocument();
-  expect(screen.getByText(/NZ: Limited recent carbon samples/i)).toBeInTheDocument();
+  expect(screen.queryByText(/Recent NZ Grid Trend/i)).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: /Estimate/i })).toBeInTheDocument();
 });
 
@@ -182,6 +182,7 @@ test('renders limited NZ history with Electricity Authority latest dispatch acti
 
   render(<App />);
 
-  expect(await screen.findByText(/NZ: Limited recent carbon samples/i)).toBeInTheDocument();
-  expect(screen.getByText(/Electricity Authority dispatch is used for the latest live demand snapshot/i)).toBeInTheDocument();
+  expect(await screen.findByText(/Live NZ grid signal/i)).toBeInTheDocument();
+  expect(screen.getByText(/Best flexible-load window/i)).toBeInTheDocument();
+  expect(screen.queryByText(/Recent NZ Grid Trend/i)).not.toBeInTheDocument();
 });

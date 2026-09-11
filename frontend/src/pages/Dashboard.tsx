@@ -1,13 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import {
-    Area,
-    AreaChart,
-    CartesianGrid,
-    ResponsiveContainer,
-    Tooltip,
-    XAxis,
-    YAxis,
-} from "recharts";
 import GenerationMixChart from "../components/GenerationMixChart";
 import {
     calculateRenewablePercentage,
@@ -32,8 +23,6 @@ const ACTIVITIES = [
     { label: "Generic load", kWh: 5, durationHours: 2 },
 ];
 
-type TrendMetric = "carbon" | "renewable" | "demand";
-
 interface PlannerState extends PlannerInput {
     activity: string;
 }
@@ -42,7 +31,6 @@ const Dashboard: React.FC = () => {
     const [nzData, setNzData] = useState<EmissionsData | null>(null);
     const [nzHistory, setNzHistory] = useState<HistoryResponse | null>(null);
     const [nzProfile, setNzProfile] = useState<NewZealandProfile | null>(null);
-    const [trendMetric, setTrendMetric] = useState<TrendMetric>("carbon");
     const [loading, setLoading] = useState(true);
     const [plannerLoading, setPlannerLoading] = useState(false);
     const [errors, setErrors] = useState<string[]>([]);
@@ -98,8 +86,6 @@ const Dashboard: React.FC = () => {
     }, [fetchData]);
 
     const insights = useMemo(() => buildInsights(nzData, nzHistory, nzProfile), [nzData, nzHistory, nzProfile]);
-    const trendData = useMemo(() => buildTrendData(nzHistory, trendMetric), [nzHistory, trendMetric]);
-    const nzHasEaDispatch = Boolean(nzHistory?.dataSources?.some((source) => source.includes("Electricity Authority")));
 
     const handleActivityChange = (activity: string) => {
         const selected = ACTIVITIES.find((item) => item.label === activity) || ACTIVITIES[0];
@@ -202,56 +188,6 @@ const Dashboard: React.FC = () => {
                     </div>
                 </section>
             )}
-
-            <section className="dashboard-section trend-section">
-                <div className="section-heading">
-                    <div>
-                        <h2>Recent NZ Grid Trend</h2>
-                        <p>Use the recent pattern to see whether now is unusually clean or worth waiting out.</p>
-                    </div>
-                    <div className="segmented-control" aria-label="Trend metric">
-                        <button className={trendMetric === "carbon" ? "active" : ""} onClick={() => setTrendMetric("carbon")}>Carbon</button>
-                        <button className={trendMetric === "renewable" ? "active" : ""} onClick={() => setTrendMetric("renewable")}>Renewables</button>
-                        <button className={trendMetric === "demand" ? "active" : ""} onClick={() => setTrendMetric("demand")}>Demand</button>
-                    </div>
-                </div>
-                <div className="trend-chart">
-                    {trendData.length > 0 ? (
-                        <ResponsiveContainer width="100%" height={320}>
-                            <AreaChart data={trendData}>
-                                <defs>
-                                    <linearGradient id="nzTrend" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="5%" stopColor="#1f7a63" stopOpacity={0.28} />
-                                        <stop offset="95%" stopColor="#1f7a63" stopOpacity={0.03} />
-                                    </linearGradient>
-                                </defs>
-                                <CartesianGrid strokeDasharray="3 3" stroke="#d9e2ec" />
-                                <XAxis dataKey="time" tick={{ fontSize: 12 }} />
-                                <YAxis tick={{ fontSize: 12 }} />
-                                <Tooltip formatter={(value: number) => [formatTrendValue(value, trendMetric), getTrendLabel(trendMetric)]} />
-                                <Area name="New Zealand" type="monotone" dataKey="nz" stroke="#1f7a63" fill="url(#nzTrend)" strokeWidth={2} connectNulls />
-                            </AreaChart>
-                        </ResponsiveContainer>
-                    ) : (
-                        <div className="empty-panel">No NZ history available yet.</div>
-                    )}
-                </div>
-                <div className="coverage-row" aria-label="Data coverage">
-                    <CoverageBadge country="NZ" coverage={nzHistory?.historyCoverage} note={nzHistory?.dataNotes} />
-                </div>
-                <p className="chart-note">
-                    {nzHistory?.historyCoverage === "limited" && nzHasEaDispatch
-                        ? "New Zealand carbon history is limited to recent EM6 samples; Electricity Authority dispatch is used for the latest live demand snapshot."
-                        : nzHistory?.historyCoverage === "limited"
-                            ? "New Zealand free carbon history is limited to recent EM6 samples, so this trend is a near-term signal rather than a full-day forecast."
-                            : nzHistory?.historyCoverage === "partial"
-                                ? "New Zealand combines EM6 carbon samples with Electricity Authority dispatch demand; carbon history is still limited by the free EM6 feed."
-                                : "New Zealand live and recent-history data are available."}
-                </p>
-                <div className="cleanest-row single">
-                    <CleanestWindow label="NZ cleanest recent window" window={nzHistory?.cleanestWindow || null} />
-                </div>
-            </section>
 
             <section className="dashboard-section planner-section">
                 <div className="section-heading">
@@ -383,22 +319,6 @@ function Metric({ label, value }: { label: string; value: string }) {
     );
 }
 
-function CleanestWindow({ label, window }: { label: string; window: EmissionsData | null }) {
-    return (
-        <div className="cleanest-card">
-            <span>{label}</span>
-            {window ? (
-                <>
-                    <strong>{window.carbonIntensity_gCO2kWh.toFixed(0)} gCO2/kWh</strong>
-                    <p>{formatTimestamp(window.timestamp)}</p>
-                </>
-            ) : (
-                <p>No recent history available.</p>
-            )}
-        </div>
-    );
-}
-
 function ShareList({ title, items, labelKey }: { title: string; items: ProfileShare[]; labelKey: "sector" | "gas" }) {
     return (
         <div className="share-list">
@@ -462,48 +382,6 @@ function buildInsights(nz: EmissionsData | null, history: HistoryResponse | null
     return insights;
 }
 
-function buildTrendData(nzHistory: HistoryResponse | null, metric: TrendMetric) {
-    return (nzHistory?.history || [])
-        .map((point) => ({
-            timestamp: point.timestamp,
-            time: formatShortTime(point.timestamp),
-            nz: getTrendMetricValue(point, metric),
-        }))
-        .sort((left, right) => new Date(left.timestamp).getTime() - new Date(right.timestamp).getTime());
-}
-
-function getTrendMetricValue(point: EmissionsData, metric: TrendMetric) {
-    if (metric === "renewable") return point.renewablePercentage ?? calculateRenewablePercentage(point.generationMix);
-    if (metric === "demand") return Math.round(point.totalDemandMW);
-    return Math.round(point.carbonIntensity_gCO2kWh);
-}
-
-function getTrendLabel(metric: TrendMetric) {
-    if (metric === "renewable") return "Renewable %";
-    if (metric === "demand") return "Demand MW";
-    return "Carbon gCO2/kWh";
-}
-
-function formatTrendValue(value: number, metric: TrendMetric) {
-    if (metric === "renewable") return `${value}%`;
-    if (metric === "demand") return `${Number(value).toLocaleString()} MW`;
-    return `${value} gCO2/kWh`;
-}
-
-function CoverageBadge({ country, coverage, note }: { country: string; coverage?: string; note?: string }) {
-    const label = coverage === "limited"
-        ? "Limited recent carbon samples"
-        : coverage === "partial"
-            ? "Partial recent history"
-            : "Full recent history";
-
-    return (
-        <span className={`coverage-badge ${coverage || "full"}`} title={note || label}>
-            {country}: {label}
-        </span>
-    );
-}
-
 function getShare(items: ProfileShare[], label: string) {
     return items.find((item) => item.sector === label || item.gas === label)?.sharePercentage || 0;
 }
@@ -532,13 +410,6 @@ function formatTimestamp(timestamp: string) {
     return new Date(timestamp).toLocaleString("en-NZ", {
         day: "2-digit",
         month: "short",
-        hour: "2-digit",
-        minute: "2-digit",
-    });
-}
-
-function formatShortTime(timestamp: string) {
-    return new Date(timestamp).toLocaleTimeString("en-NZ", {
         hour: "2-digit",
         minute: "2-digit",
     });

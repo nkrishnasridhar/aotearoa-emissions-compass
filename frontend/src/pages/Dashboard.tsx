@@ -3,7 +3,6 @@ import {
     Area,
     AreaChart,
     CartesianGrid,
-    Legend,
     ResponsiveContainer,
     Tooltip,
     XAxis,
@@ -11,17 +10,17 @@ import {
 } from "recharts";
 import GenerationMixChart from "../components/GenerationMixChart";
 import {
-    aggregateAustraliaData,
     calculateRenewablePercentage,
     EmissionsData,
     estimateActivity,
-    fetchAustraliaData,
-    fetchAustraliaHistory,
     fetchNewZealandData,
     fetchNewZealandHistory,
+    fetchNewZealandProfile,
     HistoryResponse,
+    NewZealandProfile,
     PlannerEstimate,
     PlannerInput,
+    ProfileShare,
 } from "../services/api";
 import "./Dashboard.css";
 
@@ -41,10 +40,8 @@ interface PlannerState extends PlannerInput {
 
 const Dashboard: React.FC = () => {
     const [nzData, setNzData] = useState<EmissionsData | null>(null);
-    const [auData, setAuData] = useState<EmissionsData | null>(null);
-    const [auStates, setAuStates] = useState<EmissionsData[]>([]);
     const [nzHistory, setNzHistory] = useState<HistoryResponse | null>(null);
-    const [auHistory, setAuHistory] = useState<HistoryResponse | null>(null);
+    const [nzProfile, setNzProfile] = useState<NewZealandProfile | null>(null);
     const [trendMetric, setTrendMetric] = useState<TrendMetric>("carbon");
     const [loading, setLoading] = useState(true);
     const [plannerLoading, setPlannerLoading] = useState(false);
@@ -52,8 +49,7 @@ const Dashboard: React.FC = () => {
     const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
     const [planner, setPlanner] = useState<PlannerState>({
         activity: ACTIVITIES[0].label,
-        country: "Australia",
-        region: "",
+        country: "New Zealand",
         kWh: ACTIVITIES[0].kWh,
         durationHours: ACTIVITIES[0].durationHours,
     });
@@ -63,35 +59,31 @@ const Dashboard: React.FC = () => {
         setLoading(true);
         const nextErrors: string[] = [];
 
-        const [nzResult, auResult] = await Promise.allSettled([
-            Promise.all([
-                fetchNewZealandData(),
-                fetchNewZealandHistory(24),
-            ]),
-            Promise.all([
-                fetchAustraliaData(),
-                fetchAustraliaHistory(24),
-            ]),
+        const [currentResult, historyResult, profileResult] = await Promise.allSettled([
+            fetchNewZealandData(),
+            fetchNewZealandHistory(24),
+            fetchNewZealandProfile(),
         ]);
 
-        if (nzResult.status === "fulfilled") {
-            const [current, history] = nzResult.value;
-            setNzData(current);
-            setNzHistory(history);
+        if (currentResult.status === "fulfilled") {
+            setNzData(currentResult.value);
         } else {
-            console.error("Error fetching NZ data:", nzResult.reason);
-            nextErrors.push("New Zealand data is temporarily unavailable.");
+            console.error("Error fetching NZ data:", currentResult.reason);
+            nextErrors.push("New Zealand live grid data is temporarily unavailable.");
         }
 
-        if (auResult.status === "fulfilled") {
-            const [states, history] = auResult.value;
-            const stateRecords = Array.isArray(states) ? states : [];
-            setAuStates(stateRecords);
-            setAuData(aggregateAustraliaData(stateRecords));
-            setAuHistory(history);
+        if (historyResult.status === "fulfilled") {
+            setNzHistory(historyResult.value);
         } else {
-            console.error("Error fetching AU data:", auResult.reason);
-            nextErrors.push("Australian data is temporarily unavailable.");
+            console.error("Error fetching NZ history:", historyResult.reason);
+            nextErrors.push("New Zealand recent history is temporarily unavailable.");
+        }
+
+        if (profileResult.status === "fulfilled") {
+            setNzProfile(profileResult.value);
+        } else {
+            console.error("Error fetching NZ profile:", profileResult.reason);
+            nextErrors.push("New Zealand emissions profile is temporarily unavailable.");
         }
 
         setErrors(nextErrors);
@@ -105,10 +97,8 @@ const Dashboard: React.FC = () => {
         return () => clearInterval(interval);
     }, [fetchData]);
 
-    const auRegionData = useMemo(() => Array.isArray(auStates) ? auStates : [], [auStates]);
-    const insights = useMemo(() => buildInsights(nzData, auData, auRegionData, lastUpdated), [nzData, auData, auRegionData, lastUpdated]);
-    const trendData = useMemo(() => buildTrendData(nzHistory, auHistory, trendMetric), [nzHistory, auHistory, trendMetric]);
-    const cleanestAuRegion = useMemo(() => getCleanestRegion(auRegionData), [auRegionData]);
+    const insights = useMemo(() => buildInsights(nzData, nzHistory, nzProfile, lastUpdated), [nzData, nzHistory, nzProfile, lastUpdated]);
+    const trendData = useMemo(() => buildTrendData(nzHistory, trendMetric), [nzHistory, trendMetric]);
     const nzHasEaDispatch = Boolean(nzHistory?.dataSources?.some((source) => source.includes("Electricity Authority")));
 
     const handleActivityChange = (activity: string) => {
@@ -128,8 +118,7 @@ const Dashboard: React.FC = () => {
 
         try {
             const estimate = await estimateActivity({
-                country: planner.country,
-                region: planner.country === "Australia" && planner.region ? planner.region : undefined,
+                country: "New Zealand",
                 kWh: planner.kWh,
                 durationHours: planner.durationHours,
             });
@@ -142,10 +131,10 @@ const Dashboard: React.FC = () => {
         }
     };
 
-    if (loading && !nzData && !auData) {
+    if (loading && !nzData && !nzProfile) {
         return (
             <div className="dashboard-container">
-                <div className="loading">Loading grid signals...</div>
+                <div className="loading">Loading Aotearoa emissions signals...</div>
             </div>
         );
     }
@@ -154,10 +143,10 @@ const Dashboard: React.FC = () => {
         <div className="dashboard-container">
             <header className="dashboard-header">
                 <div>
-                    <p className="eyebrow">Grid timing decision tool</p>
-                    <h1>Is now a clean time to use electricity?</h1>
+                    <p className="eyebrow">Aotearoa emissions compass</p>
+                    <h1>Where do emissions matter in New Zealand?</h1>
                     <p className="header-copy">
-                        Compare live grid emissions, recent trends, and the impact of shifting flexible household demand.
+                        A practical NZ dashboard for live electricity timing, national emissions context, and household choices that can move with today&apos;s grid.
                     </p>
                 </div>
                 <div className="header-controls">
@@ -178,9 +167,9 @@ const Dashboard: React.FC = () => {
                 </div>
             )}
 
-            <section className="signal-grid">
+            <section className="signal-grid nz-focus-grid">
                 {nzData && <GridSignalPanel data={nzData} />}
-                {auData && <GridSignalPanel data={auData} />}
+                {nzProfile && <NationalSnapshot profile={nzProfile} />}
             </section>
 
             <section className="insight-grid">
@@ -193,10 +182,31 @@ const Dashboard: React.FC = () => {
                 ))}
             </section>
 
+            {nzProfile && (
+                <section className="dashboard-section profile-section">
+                    <div className="section-heading">
+                        <div>
+                            <h2>What matters most in NZ?</h2>
+                            <p>Electricity timing is useful, but Aotearoa&apos;s bigger emissions story sits across agriculture, transport, industry, and waste.</p>
+                        </div>
+                    </div>
+                    <div className="profile-layout">
+                        <ShareList title="Gross emissions by sector" items={nzProfile.sectorShares} labelKey="sector" />
+                        <ShareList title="Gross emissions by gas" items={nzProfile.gasShares} labelKey="gas" />
+                    </div>
+                    <div className="purpose-panel">
+                        <strong>Purpose</strong>
+                        <p>
+                            Use clean-grid windows for flexible electric loads, but treat electrification as the bigger lever: shifting vehicles, heating, and process heat away from fossil fuels matters because electricity is already mostly renewable in New Zealand.
+                        </p>
+                    </div>
+                </section>
+            )}
+
             <section className="dashboard-section trend-section">
                 <div className="section-heading">
                     <div>
-                        <h2>Recent Grid Trend</h2>
+                        <h2>Recent NZ Grid Trend</h2>
                         <p>Use the recent pattern to see whether now is unusually clean or worth waiting out.</p>
                     </div>
                     <div className="segmented-control" aria-label="Trend metric">
@@ -211,43 +221,35 @@ const Dashboard: React.FC = () => {
                             <AreaChart data={trendData}>
                                 <defs>
                                     <linearGradient id="nzTrend" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="5%" stopColor="#2f855a" stopOpacity={0.28} />
-                                        <stop offset="95%" stopColor="#2f855a" stopOpacity={0.03} />
-                                    </linearGradient>
-                                    <linearGradient id="auTrend" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="5%" stopColor="#b7791f" stopOpacity={0.3} />
-                                        <stop offset="95%" stopColor="#b7791f" stopOpacity={0.03} />
+                                        <stop offset="5%" stopColor="#1f7a63" stopOpacity={0.28} />
+                                        <stop offset="95%" stopColor="#1f7a63" stopOpacity={0.03} />
                                     </linearGradient>
                                 </defs>
                                 <CartesianGrid strokeDasharray="3 3" stroke="#d9e2ec" />
                                 <XAxis dataKey="time" tick={{ fontSize: 12 }} />
                                 <YAxis tick={{ fontSize: 12 }} />
                                 <Tooltip formatter={(value: number) => [formatTrendValue(value, trendMetric), getTrendLabel(trendMetric)]} />
-                                <Legend />
-                                <Area name="New Zealand" type="monotone" dataKey="nz" stroke="#2f855a" fill="url(#nzTrend)" strokeWidth={2} connectNulls />
-                                <Area name="Australia" type="monotone" dataKey="au" stroke="#b7791f" fill="url(#auTrend)" strokeWidth={2} connectNulls />
+                                <Area name="New Zealand" type="monotone" dataKey="nz" stroke="#1f7a63" fill="url(#nzTrend)" strokeWidth={2} connectNulls />
                             </AreaChart>
                         </ResponsiveContainer>
                     ) : (
-                        <div className="empty-panel">No history available yet.</div>
+                        <div className="empty-panel">No NZ history available yet.</div>
                     )}
                 </div>
                 <div className="coverage-row" aria-label="Data coverage">
                     <CoverageBadge country="NZ" coverage={nzHistory?.historyCoverage} note={nzHistory?.dataNotes} />
-                    <CoverageBadge country="AU" coverage={auHistory?.historyCoverage || "full"} note={auHistory?.dataNotes || "Smoothed 30-minute OpenElectricity NEM history."} />
                 </div>
                 <p className="chart-note">
                     {nzHistory?.historyCoverage === "limited" && nzHasEaDispatch
-                        ? "New Zealand carbon history is limited to recent EM6 samples; Electricity Authority dispatch is used for the latest live NZ demand snapshot."
+                        ? "New Zealand carbon history is limited to recent EM6 samples; Electricity Authority dispatch is used for the latest live demand snapshot."
                         : nzHistory?.historyCoverage === "limited"
-                        ? "New Zealand free carbon history is limited to recent EM6 samples, while Australia is shown as a smoothed 30-minute NEM aggregate."
-                        : nzHistory?.historyCoverage === "partial"
-                            ? "New Zealand combines EM6 carbon samples with Electricity Authority dispatch demand; carbon history is still limited by the free EM6 feed."
-                        : "Australia is shown as a 30-minute smoothed NEM aggregate to make the dense 5-minute data readable."}
+                            ? "New Zealand free carbon history is limited to recent EM6 samples, so this trend is a near-term signal rather than a full-day forecast."
+                            : nzHistory?.historyCoverage === "partial"
+                                ? "New Zealand combines EM6 carbon samples with Electricity Authority dispatch demand; carbon history is still limited by the free EM6 feed."
+                                : "New Zealand live and recent-history data are available."}
                 </p>
-                <div className="cleanest-row">
+                <div className="cleanest-row single">
                     <CleanestWindow label="NZ cleanest recent window" window={nzHistory?.cleanestWindow || null} />
-                    <CleanestWindow label="AU cleanest recent window" window={auHistory?.cleanestWindow || null} />
                 </div>
             </section>
 
@@ -255,32 +257,16 @@ const Dashboard: React.FC = () => {
                 <div className="section-heading">
                     <div>
                         <h2>Activity Planner</h2>
-                        <p>Estimate the carbon impact of running a flexible load now versus the cleanest recent window.</p>
+                        <p>Estimate the carbon impact of running a flexible electric load now versus the cleanest recent NZ window.</p>
                     </div>
                 </div>
-                <form className="planner-form" onSubmit={handlePlannerSubmit}>
+                <form className="planner-form nz-planner-form" onSubmit={handlePlannerSubmit}>
                     <label>
                         Activity
                         <select value={planner.activity} onChange={(event) => handleActivityChange(event.target.value)}>
                             {ACTIVITIES.map((activity) => <option key={activity.label}>{activity.label}</option>)}
                         </select>
                     </label>
-                    <label>
-                        Grid
-                        <select value={planner.country} onChange={(event) => setPlanner((current) => ({ ...current, country: event.target.value as PlannerState["country"], region: "" }))}>
-                            <option key="Australia">Australia</option>
-                            <option key="New Zealand">New Zealand</option>
-                        </select>
-                    </label>
-                    {planner.country === "Australia" && (
-                        <label>
-                            Region
-                            <select value={planner.region || ""} onChange={(event) => setPlanner((current) => ({ ...current, region: event.target.value }))}>
-                                <option key="Australia aggregate" value="">Australia aggregate</option>
-                                {auRegionData.map((state) => <option key={state.state} value={state.state}>{state.state}</option>)}
-                            </select>
-                        </label>
-                    )}
                     <label>
                         Energy
                         <input type="number" min="0.1" step="0.1" value={planner.kWh} onChange={(event) => setPlanner((current) => ({ ...current, kWh: Number(event.target.value) }))} />
@@ -296,44 +282,15 @@ const Dashboard: React.FC = () => {
                 {plannerEstimate && <PlannerResult estimate={plannerEstimate} />}
             </section>
 
-            <section className="detail-grid">
-                {nzData && (
-                    <CountryDetailCard title="New Zealand" data={nzData} />
-                )}
-                {auData && (
-                    <CountryDetailCard title="Australia" data={auData} />
-                )}
-            </section>
-
-            <section className="dashboard-section region-section">
-                <div className="section-heading">
-                    <div>
-                        <h2>Australia Regional Breakdown</h2>
-                        <p>{cleanestAuRegion ? `${cleanestAuRegion.state} is currently the cleanest NEM region.` : "Regional data is loading."}</p>
-                    </div>
-                </div>
-                <div className="region-table">
-                    <div className="region-row region-head">
-                        <span>Region</span>
-                        <span>Signal</span>
-                        <span>Carbon</span>
-                        <span>Renewable</span>
-                        <span>Main source</span>
-                    </div>
-                    {auRegionData.map((state) => (
-                        <div className="region-row" key={state.state}>
-                            <span>{state.state}</span>
-                            <span className={`signal-pill ${getSignalClass(state.gridSignal)}`}>{state.gridSignal}</span>
-                            <span>{state.carbonIntensity_gCO2kWh.toFixed(0)} gCO2/kWh</span>
-                            <span>{state.renewablePercentage ?? calculateRenewablePercentage(state.generationMix)}%</span>
-                            <span>{capitalize(getLeadingFuel(state.generationMix) || "unknown")}</span>
-                        </div>
-                    ))}
-                </div>
-            </section>
+            {nzData && (
+                <section className="detail-grid single">
+                    <CountryDetailCard title="Live NZ generation mix" data={nzData} />
+                </section>
+            )}
 
             <footer className="dashboard-footer">
-                <p>Data sources: NZ - EM6 API + optional Electricity Authority dispatch | AU - OpenElectricity API</p>
+                <p>Live grid sources: EM6 API + optional Electricity Authority dispatch</p>
+                {nzProfile && <p>National profile sources: MfE greenhouse gas inventory and MBIE Energy in New Zealand 2025</p>}
                 <p className="auto-refresh-note">Auto-refreshes every 5 minutes</p>
             </footer>
         </div>
@@ -344,7 +301,7 @@ function GridSignalPanel({ data }: { data: EmissionsData }) {
     return (
         <article className={`signal-panel ${getSignalClass(data.gridSignal)}`}>
             <div>
-                <span className="panel-label">{data.country}</span>
+                <span className="panel-label">Live NZ grid signal</span>
                 <h2>{data.gridSignal || "Checking grid"}</h2>
                 <p>{data.signalReason || "Waiting for enough data to classify the grid."}</p>
             </div>
@@ -352,6 +309,21 @@ function GridSignalPanel({ data }: { data: EmissionsData }) {
                 <Metric label="Carbon" value={`${data.carbonIntensity_gCO2kWh.toFixed(0)} gCO2/kWh`} />
                 <Metric label="Renewable" value={`${data.renewablePercentage ?? calculateRenewablePercentage(data.generationMix)}%`} />
                 <Metric label="Confidence" value={data.confidence || "Low"} />
+            </div>
+        </article>
+    );
+}
+
+function NationalSnapshot({ profile }: { profile: NewZealandProfile }) {
+    return (
+        <article className="national-snapshot">
+            <span className="panel-label">National emissions profile</span>
+            <h2>{profile.grossEmissionsMtCO2e.toFixed(1)} Mt CO2e</h2>
+            <p>Gross emissions in {profile.year}. Agriculture and energy dominate, while electricity is already mostly renewable.</p>
+            <div className="snapshot-metrics">
+                <Metric label="Agriculture" value={`${getShare(profile.sectorShares, "Agriculture")}%`} />
+                <Metric label="Energy" value={`${getShare(profile.sectorShares, "Energy")}%`} />
+                <Metric label="Renewable electricity" value={`${profile.electricityRenewableShare2024}%`} />
             </div>
         </article>
     );
@@ -429,102 +401,83 @@ function CleanestWindow({ label, window }: { label: string; window: EmissionsDat
     );
 }
 
-function buildInsights(nz: EmissionsData | null, au: EmissionsData | null, auStates: EmissionsData[], lastUpdated: Date | null) {
+function ShareList({ title, items, labelKey }: { title: string; items: ProfileShare[]; labelKey: "sector" | "gas" }) {
+    return (
+        <div className="share-list">
+            <h3>{title}</h3>
+            {items.map((item) => {
+                const label = item[labelKey] || "Other";
+                return (
+                    <div className="share-row" key={label}>
+                        <div className="share-row-header">
+                            <strong>{label}</strong>
+                            <span>{item.sharePercentage}%</span>
+                        </div>
+                        <div className="share-bar" aria-hidden="true">
+                            <span style={{ width: `${item.sharePercentage}%` }} />
+                        </div>
+                        <p>{item.summary}</p>
+                    </div>
+                );
+            })}
+        </div>
+    );
+}
+
+function buildInsights(nz: EmissionsData | null, history: HistoryResponse | null, profile: NewZealandProfile | null, lastUpdated: Date | null) {
     const insights = [];
 
-    if (nz && au) {
-        const cleaner = nz.carbonIntensity_gCO2kWh <= au.carbonIntensity_gCO2kWh ? nz : au;
-        const dirtier = cleaner === nz ? au : nz;
-        const gap = dirtier.carbonIntensity_gCO2kWh > 0
-            ? Math.round((1 - cleaner.carbonIntensity_gCO2kWh / dirtier.carbonIntensity_gCO2kWh) * 100)
-            : 0;
-
+    if (profile) {
+        const largestSector = [...profile.sectorShares].sort((left, right) => right.sharePercentage - left.sharePercentage)[0];
         insights.push({
-            label: "Cleanest grid now",
-            value: cleaner.country,
-            detail: `${gap}% lower carbon intensity than ${dirtier.country}.`,
+            label: "Largest national source",
+            value: largestSector?.sector || "Unknown",
+            detail: `${largestSector?.sharePercentage || 0}% of gross emissions in ${profile.year}.`,
         });
-    }
 
-    if (auStates.length > 0) {
-        const leadingFuel = getLeadingFuel(au?.generationMix || {});
         insights.push({
-            label: "Australia driver",
-            value: capitalize(leadingFuel || "Unknown"),
-            detail: `${capitalize(leadingFuel || "Unknown")} is the largest visible source in the NEM mix.`,
+            label: "Electricity context",
+            value: `${profile.electricityRenewableShare2024}% renewable`,
+            detail: "Annual electricity generation is mostly renewable, so electrification can matter more than small timing changes.",
         });
     }
 
     if (nz) {
         const leadingRenewable = nz.leadingRenewableFuel || getLeadingRenewableFuel(nz.generationMix);
         const thermalShare = nz.thermalSharePercentage ?? getFuelShare(nz.generationMix, ["coal", "gas"]);
-        const hasEaDispatch = nz.dataSources?.some((source) => source.includes("Electricity Authority"));
 
         insights.push({
-            label: "NZ driver",
+            label: "Live grid driver",
             value: capitalize(leadingRenewable || "Unknown"),
-            detail: hasEaDispatch
-                ? `${capitalize(leadingRenewable || "Unknown")} leads the visible NZ mix; EA dispatch demand is active.`
-                : `${capitalize(leadingRenewable || "Unknown")} leads the visible NZ mix; thermal share is ${thermalShare}%.`,
+            detail: `${capitalize(leadingRenewable || "Unknown")} leads the visible mix; thermal share is ${thermalShare}%.`,
         });
     }
 
-    if (nz && au) {
+    if (history?.cleanestWindow) {
         insights.push({
-            label: "Renewables now",
-            value: `${nz.renewablePercentage}% NZ / ${au.renewablePercentage}% AU`,
-            detail: "Renewable share is used with carbon intensity to produce the grid signal.",
+            label: "Best flexible-load window",
+            value: `${history.cleanestWindow.carbonIntensity_gCO2kWh.toFixed(0)} gCO2/kWh`,
+            detail: `${formatTimestamp(history.cleanestWindow.timestamp)} was the cleanest recent NZ sample.`,
         });
     }
 
     insights.push({
         label: "Data freshness",
         value: lastUpdated ? formatRelativeMinutes(lastUpdated) : "Loading",
-        detail: "The dashboard refreshes current and recent-history data every 5 minutes.",
+        detail: "The dashboard refreshes live and recent-history NZ data every 5 minutes.",
     });
 
     return insights;
 }
 
-function CoverageBadge({ country, coverage, note }: { country: string; coverage?: string; note?: string }) {
-    const label = coverage === "limited"
-        ? "Limited recent carbon samples"
-        : coverage === "partial"
-            ? "Partial recent history"
-            : "Full recent history";
-
-    return (
-        <span className={`coverage-badge ${coverage || "full"}`} title={note || label}>
-            {country}: {label}
-        </span>
-    );
-}
-
-interface TrendPoint {
-    timestamp: string;
-    time: string;
-    nz?: number;
-    au?: number;
-}
-
-function buildTrendData(nzHistory: HistoryResponse | null, auHistory: HistoryResponse | null, metric: TrendMetric) {
-    const points = new Map<string, TrendPoint>();
-
-    addTrendSeries(points, "nz", nzHistory?.history || [], metric);
-    addTrendSeries(points, "au", auHistory?.history || [], metric);
-
-    return Array.from(points.values()).sort((left, right) => new Date(left.timestamp).getTime() - new Date(right.timestamp).getTime());
-}
-
-function addTrendSeries(points: Map<string, TrendPoint>, key: "nz" | "au", history: EmissionsData[], metric: TrendMetric) {
-    history.forEach((point) => {
-        const existing = points.get(point.timestamp) || {
+function buildTrendData(nzHistory: HistoryResponse | null, metric: TrendMetric) {
+    return (nzHistory?.history || [])
+        .map((point) => ({
             timestamp: point.timestamp,
             time: formatShortTime(point.timestamp),
-        };
-        existing[key] = getTrendMetricValue(point, metric);
-        points.set(point.timestamp, existing);
-    });
+            nz: getTrendMetricValue(point, metric),
+        }))
+        .sort((left, right) => new Date(left.timestamp).getTime() - new Date(right.timestamp).getTime());
 }
 
 function getTrendMetricValue(point: EmissionsData, metric: TrendMetric) {
@@ -545,14 +498,22 @@ function formatTrendValue(value: number, metric: TrendMetric) {
     return `${value} gCO2/kWh`;
 }
 
-function getCleanestRegion(states: EmissionsData[]) {
-    return [...states].sort((left, right) => left.carbonIntensity_gCO2kWh - right.carbonIntensity_gCO2kWh)[0] || null;
+function CoverageBadge({ country, coverage, note }: { country: string; coverage?: string; note?: string }) {
+    const label = coverage === "limited"
+        ? "Limited recent carbon samples"
+        : coverage === "partial"
+            ? "Partial recent history"
+            : "Full recent history";
+
+    return (
+        <span className={`coverage-badge ${coverage || "full"}`} title={note || label}>
+            {country}: {label}
+        </span>
+    );
 }
 
-function getLeadingFuel(mix: { [key: string]: number | undefined }) {
-    return Object.entries(mix)
-        .filter(([, value]) => (value || 0) > 0)
-        .sort((left, right) => (right[1] || 0) - (left[1] || 0))[0]?.[0] || null;
+function getShare(items: ProfileShare[], label: string) {
+    return items.find((item) => item.sector === label || item.gas === label)?.sharePercentage || 0;
 }
 
 function getLeadingRenewableFuel(mix: { [key: string]: number | undefined }) {

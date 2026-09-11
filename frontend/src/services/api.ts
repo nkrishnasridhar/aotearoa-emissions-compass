@@ -71,9 +71,31 @@ export interface HistoryResponse {
     dispatchLatestTimestamp?: string;
 }
 
+export interface ProfileShare {
+    sector?: string;
+    gas?: string;
+    sharePercentage: number;
+    summary: string;
+}
+
+export interface ProfileSource {
+    name: string;
+    url: string;
+}
+
+export interface NewZealandProfile {
+    country: string;
+    year: number;
+    grossEmissionsMtCO2e: number;
+    sectorShares: ProfileShare[];
+    gasShares: ProfileShare[];
+    electricityRenewableShare2024: number;
+    sources: ProfileSource[];
+    notes: string;
+}
+
 export interface PlannerInput {
-    country: 'Australia' | 'New Zealand';
-    region?: string;
+    country?: 'New Zealand';
     kWh: number;
     durationHours: number;
 }
@@ -100,25 +122,16 @@ export interface PlannerEstimate {
     historyCoverage?: 'limited' | 'partial' | 'full';
 }
 
-export async function fetchAustraliaData(): Promise<EmissionsData[]> {
-    const data = await requestJson<EmissionsData[]>('/api/emissions/australia');
-
-    return data.map((state) => ({
-        ...state,
-        country: state.country || 'Australia',
-    }));
-}
-
 export async function fetchNewZealandData(): Promise<EmissionsData> {
     return requestJson<EmissionsData>('/api/emissions/new-zealand');
 }
 
-export async function fetchAustraliaHistory(hours = 24): Promise<HistoryResponse> {
-    return requestJson<HistoryResponse>(`/api/emissions/australia/history?hours=${hours}`);
-}
-
 export async function fetchNewZealandHistory(hours = 24): Promise<HistoryResponse> {
     return requestJson<HistoryResponse>(`/api/emissions/new-zealand/history?hours=${hours}`);
+}
+
+export async function fetchNewZealandProfile(): Promise<NewZealandProfile> {
+    return requestJson<NewZealandProfile>('/api/emissions/new-zealand/profile');
 }
 
 export async function estimateActivity(input: PlannerInput): Promise<PlannerEstimate> {
@@ -141,79 +154,10 @@ async function requestJson<T>(path: string, options?: RequestInit): Promise<T> {
     return response.json();
 }
 
-export function aggregateAustraliaData(states: EmissionsData[]): EmissionsData {
-    const totalDemand = states.reduce((sum, state) => sum + state.totalDemandMW, 0);
-    const weightedIntensity = totalDemand > 0 ? states.reduce((sum, state) =>
-        sum + (state.carbonIntensity_gCO2kWh * state.totalDemandMW), 0
-    ) / totalDemand : 0;
-
-    const aggregatedMix: GenerationMix = {};
-    states.forEach(state => {
-        Object.entries(state.generationMix).forEach(([fuel, value]) => {
-            if (value !== undefined) {
-                aggregatedMix[fuel] = (aggregatedMix[fuel] || 0) + value;
-            }
-        });
-    });
-
-    const renewablePercentage = calculateRenewablePercentage(aggregatedMix);
-    const leadingFuel = getLeadingFuel(aggregatedMix);
-    const gridSignal = classifyGridSignal(weightedIntensity, renewablePercentage);
-
-    return {
-        country: 'Australia',
-        timestamp: getLatestTimestamp(states.map((state) => state.timestamp)),
-        totalDemandMW: totalDemand,
-        carbonIntensity_gCO2kWh: weightedIntensity,
-        generationMix: aggregatedMix,
-        renewablePercentage,
-        dataFreshnessMinutes: states.reduce((freshest, state) => {
-            if (state.dataFreshnessMinutes === undefined || state.dataFreshnessMinutes === null) return freshest;
-            return freshest === null ? state.dataFreshnessMinutes : Math.min(freshest, state.dataFreshnessMinutes);
-        }, null as number | null),
-        gridSignal,
-        signalReason: createSignalReason(gridSignal, weightedIntensity, renewablePercentage, leadingFuel),
-        confidence: states.some((state) => state.confidence === 'Low') ? 'Medium' : 'High',
-    };
-}
-
 export function calculateRenewablePercentage(mix: GenerationMix): number {
     const renewables = ['hydro', 'wind', 'solar', 'geothermal'];
     const renewableTotal = renewables.reduce((sum, fuel) => sum + (mix[fuel] || 0), 0);
     const total = Object.values(mix).reduce((sum: number, val) => sum + (val || 0), 0);
 
     return total > 0 ? Math.round((renewableTotal / total) * 100) : 0;
-}
-
-function classifyGridSignal(carbonIntensity: number, renewablePercentage: number): GridSignal {
-    if (carbonIntensity <= 150 || renewablePercentage >= 80) return 'Use now';
-    if (carbonIntensity >= 550 || renewablePercentage < 35) return 'Avoid peak';
-    return 'Wait';
-}
-
-function createSignalReason(signal: GridSignal, carbonIntensity: number, renewablePercentage: number, leadingFuel: string | null): string {
-    const fuelText = leadingFuel ? `${leadingFuel} is the largest visible source` : 'generation mix is incomplete';
-
-    if (signal === 'Use now') {
-        return `Low-carbon window: ${Math.round(carbonIntensity)} gCO2/kWh and ${renewablePercentage}% renewable. ${fuelText}.`;
-    }
-
-    if (signal === 'Avoid peak') {
-        return `High-impact period: ${Math.round(carbonIntensity)} gCO2/kWh and ${renewablePercentage}% renewable. ${fuelText}.`;
-    }
-
-    return `Mixed signal: ${Math.round(carbonIntensity)} gCO2/kWh and ${renewablePercentage}% renewable. ${fuelText}.`;
-}
-
-function getLeadingFuel(mix: GenerationMix): string | null {
-    return Object.entries(mix)
-        .filter(([, value]) => (value || 0) > 0)
-        .sort((left, right) => (right[1] || 0) - (left[1] || 0))[0]?.[0] || null;
-}
-
-function getLatestTimestamp(timestamps: string[]): string {
-    return timestamps.reduce((latest, timestamp) =>
-        new Date(timestamp) > new Date(latest) ? timestamp : latest,
-        timestamps[0] || new Date().toISOString()
-    );
 }

@@ -16,6 +16,67 @@ const EM6_GENERATION_SOURCE = 'EM6 free generation quantities';
 const EA_DISPATCH_SOURCE = 'Electricity Authority real-time dispatch';
 const NZ_EM6_FREE_NOTE = 'EM6 free carbon feed provides the last three trading periods; 24-hour NZ carbon history requires a richer registered or paid feed.';
 const NZ_EM6_EA_NOTE = 'EM6 provides NZ carbon intensity while Electricity Authority real-time dispatch provides the latest demand/generation snapshot; carbon history is still limited by the free EM6 feed.';
+const NEW_ZEALAND_PROFILE = {
+    country: 'New Zealand',
+    year: 2024,
+    grossEmissionsMtCO2e: 75.8,
+    sectorShares: [
+        {
+            sector: 'Agriculture',
+            sharePercentage: 53,
+            summary: 'Mainly methane and nitrous oxide from livestock, manure, fertiliser, and soils.',
+        },
+        {
+            sector: 'Energy',
+            sharePercentage: 38,
+            summary: 'Includes road transport, electricity production, industrial fuel use, and other energy demand.',
+        },
+        {
+            sector: 'Industrial processes and product use',
+            sharePercentage: 6,
+            summary: 'Emissions from materials, chemicals, metals, and refrigerants.',
+        },
+        {
+            sector: 'Waste',
+            sharePercentage: 3,
+            summary: 'Mostly methane from landfills and wastewater.',
+        },
+    ],
+    gasShares: [
+        {
+            gas: 'Methane',
+            sharePercentage: 48,
+            summary: 'Largely connected to agricultural livestock emissions.',
+        },
+        {
+            gas: 'Carbon dioxide',
+            sharePercentage: 41,
+            summary: 'Mostly from energy, transport, and industrial processes.',
+        },
+        {
+            gas: 'Nitrous oxide',
+            sharePercentage: 9,
+            summary: 'Mostly from agricultural soils and fertiliser use.',
+        },
+        {
+            gas: 'Fluorinated gases',
+            sharePercentage: 2,
+            summary: 'Mainly refrigerants and industrial product use.',
+        },
+    ],
+    electricityRenewableShare2024: 85.5,
+    sources: [
+        {
+            name: 'Ministry for the Environment: New Zealand greenhouse gas inventory 1990-2024 snapshot',
+            url: 'https://environment.govt.nz/publications/new-zealands-greenhouse-gas-inventory-19902024-snapshot/',
+        },
+        {
+            name: 'MBIE: Energy in New Zealand 2025, electricity',
+            url: 'https://www.mbie.govt.nz/building-and-energy/energy-and-natural-resources/energy-statistics-and-modelling/energy-publications-and-technical-papers/energy-in-new-zealand/energy-in-new-zealand-2025/electricity',
+        },
+    ],
+    notes: 'Sector and gas shares are rounded public-summary values. Electricity renewable share is annual 2024 generation, not the live grid mix.',
+};
 const NEM_REGIONS = {
     QLD1: 'QLD',
     NSW1: 'NSW',
@@ -130,6 +191,10 @@ function createApp(options = {}) {
         }
     });
 
+    app.get('/api/emissions/new-zealand/profile', (req, res) => {
+        res.json(NEW_ZEALAND_PROFILE);
+    });
+
     app.post('/api/planner/estimate', async (req, res) => {
         try {
             const estimate = await estimateActivity(req.body || {}, httpClient);
@@ -150,7 +215,6 @@ function createApp(options = {}) {
             timestamp: new Date().toISOString(),
             nzProvider: getNzProviderStatus(),
             electricityAuthorityConfigured: Boolean(process.env.EA_API_KEY),
-            openElectricityConfigured: Boolean(process.env.OPENELECTRICITY_API_KEY),
         });
     });
 
@@ -933,7 +997,7 @@ function createHistoryResponse(country, history) {
 }
 
 async function estimateActivity(input, httpClient = axios) {
-    const country = String(input.country || '').toLowerCase();
+    const country = String(input.country || 'New Zealand').toLowerCase();
     const region = input.region ? String(input.region).toUpperCase() : null;
     const kWh = Number(input.kWh);
     const durationHours = Number(input.durationHours || 1);
@@ -1320,10 +1384,8 @@ const app = createApp();
 if (require.main === module) {
     app.listen(PORT, () => {
         console.log(`Server running on http://localhost:${PORT}`);
-        console.log(`Test API: http://localhost:${PORT}/api/emissions/australia`);
-        console.log(
-            `OpenElectricity configured: ${Boolean(process.env.OPENELECTRICITY_API_KEY)}`
-        );
+        console.log(`Test API: http://localhost:${PORT}/api/emissions/new-zealand`);
+        console.log(`Profile API: http://localhost:${PORT}/api/emissions/new-zealand/profile`);
     });
 }
 
@@ -1344,3 +1406,4 @@ module.exports.buildQueryString = buildQueryString;
 module.exports.getNemDateStart = getNemDateStart;
 module.exports.buildElectricityAuthorityDispatchUrl = buildElectricityAuthorityDispatchUrl;
 module.exports.transformElectricityAuthorityDispatchData = transformElectricityAuthorityDispatchData;
+module.exports.NEW_ZEALAND_PROFILE = NEW_ZEALAND_PROFILE;

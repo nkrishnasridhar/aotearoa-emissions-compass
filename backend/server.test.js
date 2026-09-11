@@ -16,6 +16,7 @@ const {
     buildQueryString,
     buildElectricityAuthorityDispatchUrl,
     transformElectricityAuthorityDispatchData,
+    NEW_ZEALAND_PROFILE,
 } = require('./server');
 
 function payload(series) {
@@ -642,6 +643,27 @@ test('new zealand endpoint returns transformed EM6 records', async () => {
     assert.deepEqual(response.body.generationMix, { hydro: 10 });
 });
 
+test('new zealand profile endpoint returns official-source summary data', async () => {
+    const app = createApp({
+        httpClient: {
+            get() {
+                throw new Error('should not call upstream');
+            },
+        },
+    });
+
+    const response = await request(app, '/api/emissions/new-zealand/profile');
+
+    assert.equal(response.status, 200);
+    assert.equal(response.body.country, 'New Zealand');
+    assert.equal(response.body.year, 2024);
+    assert.equal(response.body.grossEmissionsMtCO2e, 75.8);
+    assert.equal(response.body.electricityRenewableShare2024, 85.5);
+    assert.equal(response.body.sectorShares.find((item) => item.sector === 'Agriculture').sharePercentage, 53);
+    assert.equal(response.body.gasShares.find((item) => item.gas === 'Methane').sharePercentage, 48);
+    assert.deepEqual(response.body.sources, NEW_ZEALAND_PROFILE.sources);
+});
+
 test('health reports NZ provider config without exposing secrets', async () => {
     const previousProvider = process.env.NZ_REALTIME_PROVIDER;
     const previousEaKey = process.env.EA_API_KEY;
@@ -869,6 +891,85 @@ test('planner endpoint includes limited-history note for New Zealand free data',
     assert.match(response.body.dataNotes, /last three trading periods/);
     assert.equal(response.body.now.estimatedKgCO2e, 0.8);
     assert.equal(response.body.cleanerWindow.estimatedKgCO2e, 0.4);
+});
+
+test('planner endpoint defaults to New Zealand when country is omitted', async () => {
+    const previousProvider = process.env.NZ_REALTIME_PROVIDER;
+    const previousEaKey = process.env.EA_API_KEY;
+
+    process.env.NZ_REALTIME_PROVIDER = 'em6-free';
+    delete process.env.EA_API_KEY;
+
+    const responses = [
+        {
+            data: {
+                items: [
+                    {
+                        timestamp: '2026-09-03T09:00:00Z',
+                        nz_carbon_gkwh: '80',
+                    },
+                ],
+            },
+        },
+        {
+            data: {
+                items: [
+                    {
+                        generation_type: [
+                            {
+                                hyd_mwh: 480,
+                            },
+                        ],
+                    },
+                ],
+            },
+        },
+        {
+            data: {
+                items: [
+                    {
+                        timestamp: new Date().toISOString(),
+                        nz_carbon_gkwh: '80',
+                    },
+                ],
+            },
+        },
+        {
+            data: {
+                items: [
+                    {
+                        generation_type: [
+                            {
+                                hyd_mwh: 480,
+                            },
+                        ],
+                    },
+                ],
+            },
+        },
+    ];
+
+    const app = createApp({
+        httpClient: {
+            get: async () => responses.shift(),
+        },
+    });
+
+    const response = await request(app, '/api/planner/estimate', {
+        method: 'POST',
+        body: {
+            kWh: 10,
+            durationHours: 2,
+        },
+    });
+
+    restoreEnv('NZ_REALTIME_PROVIDER', previousProvider);
+    restoreEnv('EA_API_KEY', previousEaKey);
+
+    assert.equal(response.status, 200);
+    assert.equal(response.body.country, 'New Zealand');
+    assert.equal(response.body.region, null);
+    assert.equal(response.body.now.estimatedKgCO2e, 0.8);
 });
 
 test('planner endpoint estimates run-now emissions against cleanest recent window', async () => {

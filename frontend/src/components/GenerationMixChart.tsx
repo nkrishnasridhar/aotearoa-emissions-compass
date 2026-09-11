@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { GenerationMix } from "../services/api";
 
@@ -23,6 +23,10 @@ const FUEL_COLORS: { [key: string]: string } = {
     other: "#A0AEC0",      // Light gray
 };
 
+function isCompactViewport() {
+    return Boolean(window.matchMedia?.("(max-width: 680px)")?.matches);
+}
+
 /**
  * A pie chart component for visualizing electricity generation mix by fuel type.
  *
@@ -31,6 +35,20 @@ const FUEL_COLORS: { [key: string]: string } = {
  * @returns A responsive pie chart showing the proportion of each generation source
  */
 const GenerationMixChart: React.FC<GenerationMixChartProps> = ({ data }) => {
+    const [isCompact, setIsCompact] = useState(isCompactViewport);
+
+    useEffect(() => {
+        const query = window.matchMedia?.("(max-width: 680px)");
+        if (!query) return;
+
+        const handleChange = () => setIsCompact(query.matches);
+
+        handleChange();
+        query.addEventListener("change", handleChange);
+
+        return () => query.removeEventListener("change", handleChange);
+    }, []);
+
     const totalValue = Object.values(data).reduce((sum: number, val: number | undefined) => {
         if (typeof val === "number" && val > 0) {
             return sum + val;
@@ -82,17 +100,17 @@ const GenerationMixChart: React.FC<GenerationMixChartProps> = ({ data }) => {
     };
 
     return (
-        <ResponsiveContainer width="100%" height={300}>
+        <ResponsiveContainer width="100%" height={isCompact ? 250 : 300}>
         <PieChart>
             <Pie
                 data={chartData}
                 dataKey="value"
                 nameKey="name"
                 cx="50%"
-                cy="50%"
-                outerRadius={90}
-                label={(entry: any) => `${entry.name} ${(entry.percent * 100).toFixed(1)}%`}
-                labelLine={true}
+                cy={isCompact ? "45%" : "50%"}
+                outerRadius={isCompact ? 70 : 90}
+                label={isCompact ? false : (entry: any) => `${entry.name} ${(entry.percent * 100).toFixed(1)}%`}
+                labelLine={!isCompact}
             >
                 {chartData.map((entry, index) => (
                     <Cell 
@@ -104,7 +122,7 @@ const GenerationMixChart: React.FC<GenerationMixChartProps> = ({ data }) => {
             <Tooltip content={<CustomTooltip />} />
             <Legend 
                 verticalAlign="bottom" 
-                height={36}
+                height={isCompact ? 64 : 36}
                 formatter={(value, entry: any) => `${value}: ${entry.payload.value} MW`}
             />
         </PieChart>

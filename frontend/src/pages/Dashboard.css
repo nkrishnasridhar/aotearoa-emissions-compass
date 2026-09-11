@@ -1,4 +1,6 @@
 .dashboard-container {
+  box-sizing: border-box;
+  min-height: 100vh;
   max-width: 1280px;
   margin: 0 auto;
   padding: 24px;
@@ -582,12 +584,34 @@
 }
 
 @media (max-width: 680px) {
+  body {
+    background: #f6f8f7;
+  }
+
   .dashboard-container {
-    padding: 16px;
+    width: 100%;
+    padding: 14px;
+  }
+
+  .dashboard-header {
+    gap: 14px;
+    margin-bottom: 14px;
+    padding-bottom: 14px;
+  }
+
+  .eyebrow {
+    margin-bottom: 6px;
+    font-size: 0.72rem;
   }
 
   .dashboard-header h1 {
-    font-size: 1.65rem;
+    font-size: 1.55rem;
+    line-height: 1.16;
+  }
+
+  .header-copy {
+    margin-top: 8px;
+    font-size: 0.92rem;
   }
 
   .header-controls,
@@ -599,10 +623,190 @@
 
   .header-controls {
     align-items: stretch;
+    gap: 8px;
+  }
+
+  .last-updated {
+    text-align: left;
+  }
+
+  .refresh-button,
+  .planner-form button {
+    min-height: 44px;
+  }
+
+  .signal-grid,
+  .insight-grid,
+  .detail-grid,
+  .cleanest-row {
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+
+  .signal-panel,
+  .national-snapshot,
+  .dashboard-section,
+  .country-section,
+  .insight-card,
+  .cleanest-card {
+    border-radius: 7px;
+  }
+
+  .signal-panel,
+  .national-snapshot,
+  .dashboard-section,
+  .country-section {
+    padding: 14px;
+  }
+
+  .signal-panel {
+    gap: 14px;
+  }
+
+  .signal-panel h2,
+  .national-snapshot h2 {
+    font-size: 1.45rem;
+  }
+
+  .signal-panel p,
+  .national-snapshot p,
+  .section-heading p,
+  .insight-card p,
+  .cleanest-card p,
+  .planner-result p,
+  .chart-note,
+  .share-row p,
+  .purpose-panel p {
+    font-size: 0.9rem;
+  }
+
+  .signal-stats {
+    width: 100%;
+    min-width: 0;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .metric {
+    min-width: 0;
+    padding: 9px 8px;
+  }
+
+  .metric span,
+  .insight-card span,
+  .cleanest-card span,
+  .planner-result span,
+  .panel-label {
+    font-size: 0.68rem;
+  }
+
+  .metric strong,
+  .insight-card strong,
+  .cleanest-card strong,
+  .planner-result strong {
+    font-size: 0.95rem;
+    overflow-wrap: anywhere;
+  }
+
+  .insight-card {
+    padding: 13px;
+  }
+
+  .section-heading {
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+
+  .section-heading h2,
+  .country-title-row h2 {
+    font-size: 1.18rem;
+  }
+
+  .segmented-control {
+    display: grid;
+    width: 100%;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .segmented-control button {
+    min-height: 40px;
+    padding: 0 6px;
+    font-size: 0.82rem;
+  }
+
+  .trend-chart {
+    min-height: 260px;
+    margin-inline: -8px;
+  }
+
+  .coverage-badge {
+    width: 100%;
+    justify-content: center;
+    min-height: 34px;
+    text-align: center;
+  }
+
+  .cleanest-card {
+    padding: 12px;
+  }
+
+  .planner-form {
+    gap: 10px;
+  }
+
+  .planner-form input,
+  .planner-form select {
+    min-height: 44px;
+    font-size: 1rem;
+  }
+
+  .planner-result {
+    gap: 10px;
+  }
+
+  .planner-result > div {
+    padding: 12px;
+  }
+
+  .profile-layout,
+  .share-list {
+    gap: 12px;
+  }
+
+  .share-row {
+    gap: 6px;
+    padding-bottom: 10px;
+  }
+
+  .share-row-header {
+    align-items: baseline;
+  }
+
+  .purpose-panel {
+    margin-top: 14px;
+    padding: 13px;
   }
 
   .country-metrics {
     grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .country-title-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .chart-container {
+    min-height: 260px;
+    margin-inline: -8px;
+  }
+
+  .dashboard-footer {
+    margin-top: 12px;
+    padding-top: 12px;
+    text-align: left;
   }
 
   .region-table {

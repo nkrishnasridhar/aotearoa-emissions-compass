@@ -18,7 +18,7 @@ The app shows:
 - Renewable share, total demand, data freshness, and confidence
 - `Use now`, `Wait`, or `Avoid peak` grid timing signal
 - Estimated emissions for flexible loads such as EV charging, laundry, dishwashers, and heat pumps
-- Recent cleanest NZ electricity window
+- Best recent NZ electricity sample for context, not forecasting
 - National NZ emissions profile by sector and gas
 - Context explaining why electricity timing helps, but transport, fossil fuel substitution, agriculture, and waste are larger parts of the national picture
 
@@ -63,7 +63,7 @@ Current v1 profile figures:
 - **Local port**: `5000`
 - **API endpoints**:
   - `GET /api/emissions/new-zealand` - Returns current NZ live grid signal and generation mix
-  - `GET /api/emissions/new-zealand/history?hours=24` - Returns recent NZ carbon samples and cleanest recent window
+  - `GET /api/emissions/new-zealand/history?hours=24` - Returns recent NZ carbon samples and the best recent sample
   - `GET /api/emissions/new-zealand/profile` - Returns static official-source NZ emissions profile context
   - `POST /api/planner/estimate` - Estimates emissions for a selected NZ electricity activity
   - `GET /health` - Health check and provider configuration status
@@ -124,7 +124,7 @@ The app classifies the current NZ grid as:
 
 The signal is intended as a practical timing guide for flexible electricity use, not a forecast.
 
-### Activity Planner
+### Flexible Load Check
 
 The planner estimates emissions for a selected electric load using:
 
@@ -132,7 +132,7 @@ The planner estimates emissions for a selected electric load using:
 kWh * carbon intensity gCO2/kWh / 1000 = kg CO2e
 ```
 
-It compares running now with the cleanest recent NZ sample. Because free NZ carbon history is limited, the planner clearly displays data coverage notes when appropriate.
+It compares running now with the best recent NZ sample. Because free NZ carbon history is limited, the planner clearly displays data coverage notes and avoids presenting recent samples as a forecast.
 
 ### National Context
 

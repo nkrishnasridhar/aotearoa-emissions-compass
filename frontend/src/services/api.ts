@@ -32,11 +32,10 @@ export interface GenerationMix {
 }
 
 /**
- * Unified emissions data structure for a country or state.
+ * Live New Zealand electricity emissions data.
  */
 export interface EmissionsData {
     country: string;
-    state?: string;
     timestamp: string;
     totalDemandMW: number;
     totalGenerationMW?: number;
@@ -62,7 +61,6 @@ export interface HistoryResponse {
     country: string;
     history: EmissionsData[];
     cleanestWindow: EmissionsData | null;
-    regionHistory?: EmissionsData[];
     dataSources?: string[];
     historyCoverage?: 'limited' | 'partial' | 'full';
     dataNotes?: string;

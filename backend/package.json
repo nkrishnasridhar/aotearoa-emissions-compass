@@ -1,7 +1,7 @@
 {
-  "name": "emissions-dashboard-backend",
+  "name": "aotearoa-emissions-compass-backend",
   "version": "1.0.0",
-  "description": "Backend API for Live Emissions Dashboard",
+  "description": "Backend API for Aotearoa Emissions Compass",
   "main": "server.js",
   "scripts": {
     "test": "node --test",

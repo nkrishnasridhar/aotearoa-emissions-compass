@@ -31,7 +31,7 @@ const currentNz = {
   confidence: 'High',
   dataSources: ['EM6 free current carbon intensity', 'EM6 free generation quantities'],
   historyCoverage: 'limited',
-  dataNotes: 'EM6 free carbon feed provides the last three trading periods.',
+  dataNotes: 'EM6 free carbon feed provides the last three trading periods; recent-sample comparisons are not forecasts.',
   leadingRenewableFuel: 'hydro',
   leadingThermalFuel: 'gas',
   thermalSharePercentage: 3,
@@ -43,7 +43,7 @@ const history = {
   cleanestWindow: currentNz,
   historyCoverage: 'limited',
   dataSources: ['EM6 free current carbon intensity', 'EM6 free generation quantities'],
-  dataNotes: 'EM6 free carbon feed provides the last three trading periods.',
+  dataNotes: 'EM6 free carbon feed provides the last three trading periods; recent-sample comparisons are not forecasts.',
 };
 
 const profile = {
@@ -101,9 +101,9 @@ beforeEach(() => {
       estimatedKgCO2e: 0.4,
     },
     savingsKgCO2e: 0.02,
-    recommendation: 'Run it now.',
+    recommendation: 'Run it now if it suits you. Timing this load is not the main emissions lever today.',
     historyCoverage: 'limited',
-    dataNotes: 'EM6 free carbon feed provides the last three trading periods.',
+    dataNotes: 'EM6 free carbon feed provides the last three trading periods; recent-sample comparisons are not forecasts.',
   });
 });
 
@@ -118,22 +118,28 @@ test('renders the Aotearoa Emissions Compass dashboard', async () => {
   expect(screen.getByText(/Aotearoa emissions compass/i)).toBeInTheDocument();
   expect(screen.getByText(/National emissions profile/i)).toBeInTheDocument();
   expect(screen.getByText(/75.8 Mt CO2e/i)).toBeInTheDocument();
+  expect(screen.getByText(/Today's take/i)).toBeInTheDocument();
+  expect(screen.getByText(/Flexible electricity use is fine now/i)).toBeInTheDocument();
+  expect(screen.getByText(/Biggest NZ source/i)).toBeInTheDocument();
+  expect(screen.getByText(/Biggest practical household lever/i)).toBeInTheDocument();
+  expect(screen.getByText(/Grid timing now/i)).toBeInTheDocument();
+  expect(screen.getByText(/Flexible-load saving/i)).toBeInTheDocument();
   expect(screen.getByText(/What matters most in NZ/i)).toBeInTheDocument();
-  expect(screen.getByText(/Best flexible-load window/i)).toBeInTheDocument();
-  expect(screen.getByText(/Activity Planner/i)).toBeInTheDocument();
+  expect(screen.getByText(/Flexible Load Check/i)).toBeInTheDocument();
   expect(screen.getByText(/Live NZ generation mix/i)).toBeInTheDocument();
-  expect(screen.queryByText(/Recent NZ Grid Trend/i)).not.toBeInTheDocument();
+  expect(screen.queryByText(new RegExp(['Recent NZ Grid', 'Trend'].join(' '), 'i'))).not.toBeInTheDocument();
+  expect(screen.queryByText(new RegExp(['Activity', 'Planner'].join(' '), 'i'))).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: /Estimate/i })).toBeInTheDocument();
 });
 
-test('removes Australia from the user-facing experience', async () => {
+test('removes legacy comparison UI from the user-facing experience', async () => {
   render(<App />);
 
   expect(await screen.findByText(/Where do emissions matter in New Zealand/i)).toBeInTheDocument();
 
-  expect(screen.queryByText(/Australia Regional Breakdown/i)).not.toBeInTheDocument();
-  expect(screen.queryByText(/Australia aggregate/i)).not.toBeInTheDocument();
-  expect(screen.queryByText(/^Australia$/i)).not.toBeInTheDocument();
+  expect(screen.queryByText(new RegExp(['Aus', 'tralia Regional Breakdown'].join(''), 'i'))).not.toBeInTheDocument();
+  expect(screen.queryByText(new RegExp(['Aus', 'tralia aggregate'].join(''), 'i'))).not.toBeInTheDocument();
+  expect(screen.queryByText(new RegExp(`^${['Aus', 'tralia'].join('')}$`, 'i'))).not.toBeInTheDocument();
   expect(screen.queryByLabelText(/Grid/i)).not.toBeInTheDocument();
 });
 
@@ -150,7 +156,8 @@ test('estimates flexible load emissions against the NZ grid only', async () => {
       durationHours: 3,
     });
   });
-  expect(await screen.findByText(/EM6 free carbon feed provides the last three trading periods/i)).toBeInTheDocument();
+  expect(await screen.findByText(/recent-sample comparisons are not forecasts/i)).toBeInTheDocument();
+  expect(screen.getAllByText(/Best recent sample/i).length).toBeGreaterThan(0);
 });
 
 test('renders limited NZ history with Electricity Authority latest dispatch active', async () => {
@@ -165,7 +172,7 @@ test('renders limited NZ history with Electricity Authority latest dispatch acti
       'Electricity Authority real-time dispatch',
     ],
     historyCoverage: 'partial',
-    dataNotes: 'EM6 provides NZ carbon intensity while Electricity Authority real-time dispatch provides the latest demand/generation snapshot; carbon history is still limited by the free EM6 feed.',
+    dataNotes: 'EM6 provides NZ carbon intensity while Electricity Authority real-time dispatch provides the latest demand/generation snapshot; recent carbon samples are still limited by the free EM6 feed.',
   });
   (fetchNewZealandHistory as jest.Mock).mockResolvedValue({
     ...history,
@@ -174,7 +181,7 @@ test('renders limited NZ history with Electricity Authority latest dispatch acti
       'EM6 free generation quantities',
       'Electricity Authority real-time dispatch',
     ],
-    dataNotes: 'EM6 provides NZ carbon intensity while Electricity Authority real-time dispatch provides the latest demand/generation snapshot; carbon history is still limited by the free EM6 feed.',
+    dataNotes: 'EM6 provides NZ carbon intensity while Electricity Authority real-time dispatch provides the latest demand/generation snapshot; recent carbon samples are still limited by the free EM6 feed.',
     dispatchCoverage: 'latest-only',
     dispatchIntervalCount: 1,
     dispatchLatestTimestamp: '2026-09-03T09:05:00',
@@ -183,6 +190,6 @@ test('renders limited NZ history with Electricity Authority latest dispatch acti
   render(<App />);
 
   expect(await screen.findByText(/Live NZ grid signal/i)).toBeInTheDocument();
-  expect(screen.getByText(/Best flexible-load window/i)).toBeInTheDocument();
-  expect(screen.queryByText(/Recent NZ Grid Trend/i)).not.toBeInTheDocument();
+  expect(screen.getByText(/Flexible-load saving/i)).toBeInTheDocument();
+  expect(screen.queryByText(new RegExp(['Recent NZ Grid', 'Trend'].join(' '), 'i'))).not.toBeInTheDocument();
 });

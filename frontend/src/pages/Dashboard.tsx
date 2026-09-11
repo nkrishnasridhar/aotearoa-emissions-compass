@@ -85,7 +85,11 @@ const Dashboard: React.FC = () => {
         return () => clearInterval(interval);
     }, [fetchData]);
 
-    const insights = useMemo(() => buildInsights(nzData, nzHistory, nzProfile), [nzData, nzHistory, nzProfile]);
+    const todayTake = useMemo(() => buildTodayTake(nzData, nzHistory, nzProfile), [nzData, nzHistory, nzProfile]);
+    const actionCards = useMemo(
+        () => buildActionCards(nzData, nzHistory, nzProfile, planner),
+        [nzData, nzHistory, nzProfile, planner]
+    );
 
     const handleActivityChange = (activity: string) => {
         const selected = ACTIVITIES.find((item) => item.label === activity) || ACTIVITIES[0];
@@ -158,8 +162,16 @@ const Dashboard: React.FC = () => {
                 {nzProfile && <NationalSnapshot profile={nzProfile} />}
             </section>
 
+            <section className="today-take" aria-labelledby="today-take-title">
+                <div>
+                    <span className="panel-label">Today&apos;s take</span>
+                    <h2 id="today-take-title">{todayTake.heading}</h2>
+                </div>
+                <p>{todayTake.detail}</p>
+            </section>
+
             <section className="insight-grid">
-                {insights.map((insight) => (
+                {actionCards.map((insight) => (
                     <article className="insight-card" key={insight.label}>
                         <span>{insight.label}</span>
                         <strong>{insight.value}</strong>
@@ -192,8 +204,8 @@ const Dashboard: React.FC = () => {
             <section className="dashboard-section planner-section">
                 <div className="section-heading">
                     <div>
-                        <h2>Activity Planner</h2>
-                        <p>Estimate the carbon impact of running a flexible electric load now versus the cleanest recent NZ window.</p>
+                        <h2>Flexible Load Check</h2>
+                        <p>Estimate the impact of running a flexible electric load now, then compare it with the best recent NZ sample. It is context, not a forecast.</p>
                     </div>
                 </div>
                 <form className="planner-form nz-planner-form" onSubmit={handlePlannerSubmit}>
@@ -288,12 +300,12 @@ function PlannerResult({ estimate }: { estimate: PlannerEstimate }) {
         <>
             <div className="planner-result">
                 <div>
-                    <span>Run now</span>
+                    <span>Run now estimate</span>
                     <strong>{estimate.now.estimatedKgCO2e.toFixed(2)} kg CO2e</strong>
                     <p>{estimate.now.carbonIntensity_gCO2kWh.toFixed(0)} gCO2/kWh</p>
                 </div>
                 <div>
-                    <span>Cleanest recent window</span>
+                    <span>Best recent sample</span>
                     <strong>{estimate.cleanerWindow.estimatedKgCO2e.toFixed(2)} kg CO2e</strong>
                     <p>{formatTimestamp(estimate.cleanerWindow.timestamp)}</p>
                 </div>
@@ -342,62 +354,87 @@ function ShareList({ title, items, labelKey }: { title: string; items: ProfileSh
     );
 }
 
-function buildInsights(nz: EmissionsData | null, history: HistoryResponse | null, profile: NewZealandProfile | null) {
-    const insights = [];
+function buildTodayTake(nz: EmissionsData | null, history: HistoryResponse | null, profile: NewZealandProfile | null) {
+    const signal = nz?.gridSignal || "Checking grid";
+    const largestSector = profile ? [...profile.sectorShares].sort((left, right) => right.sharePercentage - left.sharePercentage)[0] : null;
+    const largestSectorLabel = (largestSector?.sector || "Agriculture").toLowerCase();
+    const currentIntensity = nz ? `${nz.carbonIntensity_gCO2kWh.toFixed(0)} gCO2/kWh` : "live NZ grid data";
+    const recentBest = history?.cleanestWindow
+        ? ` The best recent sample was ${history.cleanestWindow.carbonIntensity_gCO2kWh.toFixed(0)} gCO2/kWh, so use that as a timing hint rather than a forecast.`
+        : "";
+
+    if (signal === "Use now") {
+        return {
+            heading: "Flexible electricity use is fine now",
+            detail: `The live grid is at ${currentIntensity}. Electricity timing can trim flexible loads, but ${largestSectorLabel} is NZ's largest gross source; the bigger household lever is replacing petrol, diesel, gas, and resistive heating with efficient electric options where possible.${recentBest}`,
+        };
+    }
+
+    if (signal === "Avoid peak") {
+        return {
+            heading: "Delay flexible loads if it is easy",
+            detail: `The live grid is at ${currentIntensity}, so discretionary loads may be worth moving. Still, electricity is not NZ's biggest emissions source; electrifying transport and heating is usually higher value than chasing small timing wins.${recentBest}`,
+        };
+    }
+
+    return {
+        heading: "Treat timing as useful, not central",
+        detail: `The live grid signal is mixed at ${currentIntensity}. Use recent samples for flexible loads when convenient, while keeping the bigger NZ picture in view: transport, fossil fuel substitution, agriculture, and waste matter more than minute-by-minute electricity timing.${recentBest}`,
+    };
+}
+
+function buildActionCards(
+    nz: EmissionsData | null,
+    history: HistoryResponse | null,
+    profile: NewZealandProfile | null,
+    planner: PlannerState
+) {
+    const actionCards = [];
 
     if (profile) {
         const largestSector = [...profile.sectorShares].sort((left, right) => right.sharePercentage - left.sharePercentage)[0];
-        insights.push({
-            label: "Largest national source",
+        actionCards.push({
+            label: "Biggest NZ source",
             value: largestSector?.sector || "Unknown",
             detail: `${largestSector?.sharePercentage || 0}% of gross emissions in ${profile.year}.`,
         });
 
-        insights.push({
-            label: "Electricity context",
-            value: `${profile.electricityRenewableShare2024}% renewable`,
-            detail: "Annual electricity generation is mostly renewable, so electrification can matter more than small timing changes.",
+        actionCards.push({
+            label: "Biggest practical household lever",
+            value: "Electrify energy use",
+            detail: `Transport and energy are a large practical lever because annual electricity generation is ${profile.electricityRenewableShare2024}% renewable.`,
         });
     }
 
     if (nz) {
-        const leadingRenewable = nz.leadingRenewableFuel || getLeadingRenewableFuel(nz.generationMix);
-        const thermalShare = nz.thermalSharePercentage ?? getFuelShare(nz.generationMix, ["coal", "gas"]);
-
-        insights.push({
-            label: "Live grid driver",
-            value: capitalize(leadingRenewable || "Unknown"),
-            detail: `${capitalize(leadingRenewable || "Unknown")} leads the visible mix; thermal share is ${thermalShare}%.`,
+        actionCards.push({
+            label: "Grid timing now",
+            value: nz.gridSignal || "Checking",
+            detail: nz.signalReason || "Waiting for enough live NZ data to classify flexible electricity use.",
         });
     }
 
-    if (history?.cleanestWindow) {
-        insights.push({
-            label: "Best flexible-load window",
-            value: `${history.cleanestWindow.carbonIntensity_gCO2kWh.toFixed(0)} gCO2/kWh`,
-            detail: `${formatTimestamp(history.cleanestWindow.timestamp)} was the cleanest recent NZ sample.`,
+    if (nz && history?.cleanestWindow) {
+        const savingKg = Math.max(
+            0,
+            planner.kWh * (nz.carbonIntensity_gCO2kWh - history.cleanestWindow.carbonIntensity_gCO2kWh) / 1000
+        );
+        const meaningfulSaving = savingKg >= 0.5;
+
+        actionCards.push({
+            label: "Flexible-load saving",
+            value: meaningfulSaving ? `~${savingKg.toFixed(1)} kg` : "Limited today",
+            detail: meaningfulSaving
+                ? `For ${planner.activity.toLowerCase()}, the best recent sample suggests a possible timing saving.`
+                : "Recent samples suggest timing is not the main lever today.",
         });
     }
 
-    return insights;
+    return actionCards;
 }
 
 function getShare(items: ProfileShare[], label: string) {
     return items.find((item) => item.sector === label || item.gas === label)?.sharePercentage || 0;
-}
-
-function getLeadingRenewableFuel(mix: { [key: string]: number | undefined }) {
-    return ["hydro", "wind", "solar", "geothermal"]
-        .map((fuel) => [fuel, mix[fuel] || 0] as const)
-        .filter(([, value]) => value > 0)
-        .sort((left, right) => right[1] - left[1])[0]?.[0] || null;
-}
-
-function getFuelShare(mix: { [key: string]: number | undefined }, fuels: string[]) {
-    const total = Object.values(mix).reduce((sum: number, value) => sum + (value || 0), 0);
-    const fuelTotal = fuels.reduce((sum, fuel) => sum + (mix[fuel] || 0), 0);
-
-    return total > 0 ? Math.round(fuelTotal / total * 100) : 0;
 }
 
 function getSignalClass(signal?: string) {
@@ -420,10 +457,6 @@ function formatRelativeMinutes(date: Date) {
     if (minutes === 0) return "just now";
     if (minutes === 1) return "1 minute ago";
     return `${minutes} minutes ago`;
-}
-
-function capitalize(value: string) {
-    return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 export default Dashboard;

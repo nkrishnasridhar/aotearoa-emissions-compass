@@ -97,7 +97,7 @@ const Dashboard: React.FC = () => {
         return () => clearInterval(interval);
     }, [fetchData]);
 
-    const insights = useMemo(() => buildInsights(nzData, nzHistory, nzProfile, lastUpdated), [nzData, nzHistory, nzProfile, lastUpdated]);
+    const insights = useMemo(() => buildInsights(nzData, nzHistory, nzProfile), [nzData, nzHistory, nzProfile]);
     const trendData = useMemo(() => buildTrendData(nzHistory, trendMetric), [nzHistory, trendMetric]);
     const nzHasEaDispatch = Boolean(nzHistory?.dataSources?.some((source) => source.includes("Electricity Authority")));
 
@@ -268,14 +268,12 @@ const Dashboard: React.FC = () => {
                         </select>
                     </label>
                     <label>
-                        Energy
+                        <span className="field-label">Energy (kWh)</span>
                         <input type="number" min="0.1" step="0.1" value={planner.kWh} onChange={(event) => setPlanner((current) => ({ ...current, kWh: Number(event.target.value) }))} />
-                        <span>kWh</span>
                     </label>
                     <label>
-                        Duration
+                        <span className="field-label">Duration (hours)</span>
                         <input type="number" min="0.25" step="0.25" value={planner.durationHours} onChange={(event) => setPlanner((current) => ({ ...current, durationHours: Number(event.target.value) }))} />
-                        <span>hours</span>
                     </label>
                     <button type="submit" disabled={plannerLoading}>{plannerLoading ? "Estimating" : "Estimate"}</button>
                 </form>
@@ -424,7 +422,7 @@ function ShareList({ title, items, labelKey }: { title: string; items: ProfileSh
     );
 }
 
-function buildInsights(nz: EmissionsData | null, history: HistoryResponse | null, profile: NewZealandProfile | null, lastUpdated: Date | null) {
+function buildInsights(nz: EmissionsData | null, history: HistoryResponse | null, profile: NewZealandProfile | null) {
     const insights = [];
 
     if (profile) {
@@ -460,12 +458,6 @@ function buildInsights(nz: EmissionsData | null, history: HistoryResponse | null
             detail: `${formatTimestamp(history.cleanestWindow.timestamp)} was the cleanest recent NZ sample.`,
         });
     }
-
-    insights.push({
-        label: "Data freshness",
-        value: lastUpdated ? formatRelativeMinutes(lastUpdated) : "Loading",
-        detail: "The dashboard refreshes live and recent-history NZ data every 5 minutes.",
-    });
 
     return insights;
 }

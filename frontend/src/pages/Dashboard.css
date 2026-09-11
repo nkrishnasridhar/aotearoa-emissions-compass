@@ -347,6 +347,12 @@
   font-weight: 600;
 }
 
+.planner-form label .field-label {
+  color: #52616f;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
 .planner-form button {
   background: #1f7a63;
   border-color: #1f7a63;
